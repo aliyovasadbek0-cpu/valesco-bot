@@ -1,6 +1,6 @@
 import bot from '../core/bot';
 import { CallbackActions } from '../types/enum';
-import { ADMIN_TG_ID } from '../config';
+import { isAdmin } from '../config';
 import { CodeModel } from '../../db/models/codes.model';
 import { WinnerModel } from '../../db/models/winners.model';
 import { GiftModel } from '../../db/models/gifts.model';
@@ -36,7 +36,7 @@ function getAdminKeyboard() {
 
 // Upload codes
 bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_CODES, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -71,7 +71,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_CODES, async (ctx) => {
 
 // Upload winners - kategoriyalar buttonlarini ko'rsatish
 bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -117,7 +117,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
 // Har bir kategoriya uchun alohida handler
 ['premium', 'standard', 'economy', 'symbolic'].forEach((tier) => {
   bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_UPLOAD_WINNERS}_${tier}$`), async (ctx) => {
-    if (ctx.from?.id !== ADMIN_TG_ID) {
+    if (!isAdmin(ctx.from?.id)) {
       return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
     }
 
@@ -160,7 +160,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
 
 // Clear codes
 bot.callbackQuery(CallbackActions.ADMIN_CLEAR_CODES, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -181,7 +181,7 @@ bot.callbackQuery(CallbackActions.ADMIN_CLEAR_CODES, async (ctx) => {
 });
 
 bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_CODES}_confirm$`), async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -214,7 +214,7 @@ bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_CODES}_confirm$`), 
 
 // Clear winners
 bot.callbackQuery(CallbackActions.ADMIN_CLEAR_WINNERS, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -235,7 +235,7 @@ bot.callbackQuery(CallbackActions.ADMIN_CLEAR_WINNERS, async (ctx) => {
 });
 
 bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_WINNERS}_confirm$`), async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -268,7 +268,7 @@ bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_WINNERS}_confirm$`)
 
 // Upload images
 bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_IMAGES, async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
   }
 
@@ -299,7 +299,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_IMAGES, async (ctx) => {
 // Image type selection
 ['premium', 'standard', 'economy', 'symbolic'].forEach((type) => {
   bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_UPLOAD_IMAGES}_${type}$`), async (ctx) => {
-    if (ctx.from?.id !== ADMIN_TG_ID) {
+    if (!isAdmin(ctx.from?.id)) {
       return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
     }
 

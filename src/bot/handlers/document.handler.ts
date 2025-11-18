@@ -5,7 +5,7 @@ import { GiftModel } from '../../db/models/gifts.model';
 import XLSX from 'xlsx';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
-import { ADMIN_TG_ID, BOT_TOKEN } from '../config';
+import { isAdmin, BOT_TOKEN } from '../config';
 import bot from '../core/bot';
 import { getAdminSession } from '../actions/admin.action';
 import { Types } from 'mongoose';
@@ -150,9 +150,9 @@ async function saveWinners(codes: string[], tier: 'premium' | 'standard' | 'econ
 
 // ASOSIY HANDLER
 export const handleDocument = async (ctx: MyContext) => {
-  console.log("DOCUMENT HANDLER ISHGA TUSHDI! User:", ctx.from?.id, "Admin ID:", ADMIN_TG_ID);
+  console.log("DOCUMENT HANDLER ISHGA TUSHDI! User:", ctx.from?.id);
 
-  if (Number(ctx.from?.id) !== Number(ADMIN_TG_ID)) {
+  if (!isAdmin(ctx.from?.id)) {
     console.log("Admin emas, e'tiborsiz qoldirildi");
     return;
   }
@@ -265,7 +265,7 @@ Hammasi tayyor admin! 🚀
 
 // Document handler - message handler dan oldin ishlashi kerak
 bot.on('message:document', async (ctx, next) => {
-  if (Number(ctx.from?.id) === Number(ADMIN_TG_ID)) {
+  if (isAdmin(ctx.from?.id)) {
     console.log("ADMIN DOCUMENT QABUL QILINDI – handler ishlayapti!");
     await handleDocument(ctx);
     return; // boshqa handlerlarga o'tmasin

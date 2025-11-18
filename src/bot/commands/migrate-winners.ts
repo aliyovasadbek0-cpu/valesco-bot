@@ -1,5 +1,5 @@
 import bot from '../core/bot';
-import { ADMIN_TG_ID } from '../config';
+import { isAdmin } from '../config';
 import { CodeModel } from '../../db/models/codes.model';
 import { WinnerModel } from '../../db/models/winners.model';
 import { GiftModel } from '../../db/models/gifts.model';
@@ -7,7 +7,7 @@ import winnersData from '../../config/winners.json';
 
 // G'olib kodlarni codes dan winners ga ko'chirish
 bot.command('migrate_winners', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.reply('❌ Siz admin emassiz.');
   }
 

@@ -13,7 +13,21 @@ interface MessageI {
 
 export const BOT_TOKEN = process.env.BOT_TOKEN as string;
 export const FORWARD_MESSAGES_CHANNEL_ID = -1001886860465;
-export const ADMIN_TG_ID = Number(process.env.ADMIN_TG_ID ?? '5661241603');
+
+// Admin ID lar ro'yxati
+const ADMIN_IDS = [
+  5661241603,  // Asosiy admin
+  7546792114,  // Ikkinchi admin
+];
+
+// Admin ID ni tekshirish funksiyasi
+export const isAdmin = (userId: number | undefined): boolean => {
+  if (!userId) return false;
+  return ADMIN_IDS.includes(Number(userId));
+};
+
+// Eski kodlar bilan moslik uchun (birinchi admin ID)
+export const ADMIN_TG_ID = ADMIN_IDS[0];
 
 export const messageIds: Record<'uz' | 'ru', MessageI> = {
   uz: {

@@ -1,5 +1,5 @@
 import { MyContext } from '../types/types';
-import { ADMIN_TG_ID, BOT_TOKEN } from '../config';
+import { isAdmin, BOT_TOKEN } from '../config';
 import bot from '../core/bot';
 import { GiftModel } from '../../db/models/gifts.model';
 import { getAdminSession } from '../actions/admin.action';
@@ -38,7 +38,7 @@ async function downloadPhoto(fileId: string, fileName: string): Promise<string> 
 
 // Photo handler
 export const handlePhoto = async (ctx: MyContext) => {
-  if (Number(ctx.from?.id) !== Number(ADMIN_TG_ID)) {
+  if (!isAdmin(ctx.from?.id)) {
     return;
   }
 
@@ -150,7 +150,7 @@ export const handlePhoto = async (ctx: MyContext) => {
 
 // Photo handler
 bot.on('message:photo', async (ctx, next) => {
-  if (Number(ctx.from?.id) === Number(ADMIN_TG_ID)) {
+  if (isAdmin(ctx.from?.id)) {
     await handlePhoto(ctx);
     return;
   }
@@ -159,7 +159,7 @@ bot.on('message:photo', async (ctx, next) => {
 
 // Sticker handler
 bot.on('message:sticker', async (ctx, next) => {
-  if (Number(ctx.from?.id) === Number(ADMIN_TG_ID)) {
+  if (isAdmin(ctx.from?.id)) {
     await handlePhoto(ctx);
     return;
   }

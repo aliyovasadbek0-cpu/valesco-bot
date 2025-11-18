@@ -4,7 +4,7 @@ import { MyContext } from '../types/types';
 import bot from '../core/bot';
 import { UserModel } from '../../db/models/users.model';
 import { contactRequestKeyboard } from '../helpers/keyboard';
-import { ADMIN_TG_ID, FORWARD_MESSAGES_CHANNEL_ID, messageIds } from '../config';
+import { isAdmin, FORWARD_MESSAGES_CHANNEL_ID, messageIds } from '../config';
 import { CodeLogModel } from '../../db/models/code-logs.model';
 import { Types } from 'mongoose';
 import { SettingsModel } from '../../db/models/settings.model';
@@ -159,12 +159,42 @@ async function checkCode(ctx: MyContext) {
   }).lean();
 
   // Agar winners da topilmasa, codes dan tekshirish
+  // LEKIN: Agar kod winners.json da bo'lsa, uni codes dan o'chirish kerak
   let code = null;
   if (!winner) {
     code = await CodeModel.findOne({
       $or: [{ value: rawText }, { value: hy }, { value: normalized }, { value: rawText.replace(/-/g, '') }],
       deletedAt: null,
     }).lean();
+    
+    // Agar kod codes da topilsa, lekin u winners.json da bo'lsa, uni winners ga ko'chirish kerak
+    if (code) {
+      // winners.json dan tekshiramiz
+      const winnersData = await import('../../config/winners.json');
+      const allWinnerCodes = new Set<string>();
+      
+      if ((winnersData as any).default?.tiers) {
+        for (const codes of Object.values((winnersData as any).default.tiers)) {
+          for (const c of codes as string[]) {
+            const n = c.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const pretty = n.length >= 10 ? n.slice(0, 6) + '-' + n.slice(6) : n;
+            allWinnerCodes.add(pretty);
+            allWinnerCodes.add(n);
+          }
+        }
+      }
+      
+      const codeNormalized = normalized;
+      const codePretty = hy;
+      
+      // Agar kod winners.json da bo'lsa, uni winners ga ko'chirish kerak
+      if (allWinnerCodes.has(codeNormalized) || allWinnerCodes.has(codePretty) || allWinnerCodes.has(rawText)) {
+        console.log("KOD WINNERS.JSON DA TOPILDI, WINNERS GA KO'CHIRILMOQDA:", rawText);
+        // Bu kodni winners ga ko'chirish kerak, lekin hozircha code ni null qilamiz
+        // chunki bu kod g'olib kod va uni winners dan tekshirish kerak
+        code = null;
+      }
+    }
   }
 
   await CodeLogModel.create({
@@ -190,39 +220,42 @@ async function checkCode(ctx: MyContext) {
       currentUserId: ctx.session.user.db_id
     });
 
-    if (winner.isUsed && winner.usedById?.toString() !== ctx.session.user.db_id.toString()) {
+    // BIR MARTALIK TEKSHIRISH - agar kod ishlatilgan bo'lsa, hech kim uni ishlata olmaydi
+    if (winner.isUsed) {
+      console.log("WINNER KOD ISHLATILGAN - bir martalik!");
       return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeUsed);
     }
 
-    if (!winner.isUsed) {
-      await WinnerModel.updateOne(
-        { _id: winner._id },
-        { $set: { isUsed: true, usedAt: new Date().toISOString(), usedById: ctx.session.user.db_id } }
-      );
-    }
+    // Kod ishlatilmagan bo'lsa, ishlatilgan deb belgilaymiz
+    await WinnerModel.updateOne(
+      { _id: winner._id },
+      { $set: { isUsed: true, usedAt: new Date().toISOString(), usedById: ctx.session.user.db_id } }
+    );
 
     // Winner kod uchun tier aniqlash
     const tier = winner.tier as GiftTier | null;
     console.log("WINNER TIER:", tier);
     
-    if (tier) {
-      const gift = await GiftModel.findOne({ type: tier, deletedAt: null }).lean();
-      console.log("GIFT TOPILDI:", gift ? { id: gift._id, type: gift.type, name: gift.name } : "GIFT TOPILMADI");
-      
-      if (gift) {
-        await GiftModel.updateOne({ _id: gift._id }, { $inc: { usedCount: 1 } });
-        console.log("GIFT XABARI YUBORILMOQDA:", messageIds[lang].codeWithGift[tier]);
-        return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeWithGift[tier]);
-      } else {
-        console.error(`GIFT TOPILMADI! Tier: ${tier}`);
-        // Gift topilmasa ham, winner kod bo'lgani uchun xabar yuboramiz
-        return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeReal);
-      }
-    } else {
+    if (!tier) {
       console.error("WINNER KODDA TIER YO'Q!", winner);
-      // Tier null bo'lsa ham, winner kod bo'lgani uchun xabar yuboramiz
+      // Tier null bo'lsa, oddiy xabar yuboramiz
       return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeReal);
     }
+
+    // Gift topish
+    const gift = await GiftModel.findOne({ type: tier, deletedAt: null }).lean();
+    console.log("GIFT TOPILDI:", gift ? { id: gift._id, type: gift.type, name: gift.name } : "GIFT TOPILMADI");
+    
+    if (!gift) {
+      console.error(`GIFT TOPILMADI! Tier: ${tier}`);
+      // Gift topilmasa, oddiy xabar yuboramiz
+      return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeReal);
+    }
+
+    // Gift topilgan bo'lsa, sovg'a xabari yuboramiz
+    await GiftModel.updateOne({ _id: gift._id }, { $inc: { usedCount: 1 } });
+    console.log("GIFT XABARI YUBORILMOQDA:", messageIds[lang].codeWithGift[tier]);
+    return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeWithGift[tier]);
   }
 
   // Oddiy kod topilgan bo'lsa
@@ -255,12 +288,12 @@ async function checkCode(ctx: MyContext) {
 // =====================
 const onMessageHandler = async (ctx: MyContext) => {
   // Admin document yuborsa - document handler ishlaydi, bu yerdan o'tkazmaymiz
-  if (ctx.message?.document && ctx.from?.id === ADMIN_TG_ID) {
+  if (ctx.message?.document && isAdmin(ctx.from?.id)) {
     return; // document handler ishlaydi
   }
 
   // Faqat oddiy user Excel yuborsa to'xtatamiz
-  if (ctx.message?.document && ctx.from?.id !== ADMIN_TG_ID) {
+  if (ctx.message?.document && !isAdmin(ctx.from?.id)) {
     return;
   }
 

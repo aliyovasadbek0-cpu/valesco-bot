@@ -1,12 +1,12 @@
 import bot from '../core/bot';
-import { ADMIN_TG_ID } from '../config';
+import { isAdmin } from '../config';
 import { CallbackActions } from '../types/enum';
 import { InlineKeyboard } from 'grammy';
 import { getAdminSession } from '../actions/admin.action';
 import './migrate-winners';
 
 bot.command('admin', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.reply('❌ Siz admin emassiz.');
   }
 
@@ -31,7 +31,7 @@ bot.command('admin', async (ctx) => {
 });
 
 bot.command('winner', async (ctx) => {
-  if (ctx.from?.id !== ADMIN_TG_ID) {
+  if (!isAdmin(ctx.from?.id)) {
     return ctx.reply('❌ Siz admin emassiz.');
   }
 
