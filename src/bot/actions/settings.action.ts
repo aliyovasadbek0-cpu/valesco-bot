@@ -1,110 +1,110 @@
-import { CallbackActions, Languages } from "../types/enum";
-import { MyContext } from "../types/types";
-import bot from "../core/bot";
-import {
-  languagesListInline,
-  settingsInline,
-} from "../helpers/inline.keyboard";
-import { UserModel } from "../../db/models/users.model";
-import { registerUserFirstName } from "../core/middleware";
+// import { CallbackActions, Languages } from "../types/enum";
+// import { MyContext } from "../types/types";
+// import bot from "../core/bot";
+// import {
+//   languagesListInline,
+//   settingsInline,
+// } from "../helpers/inline.keyboard";
+// import { UserModel } from "../../db/models/users.model";
+// import { registerUserFirstName } from "../core/middleware";
 
-async function setLang(ctx: MyContext, lang: string) {
-  // Foydalanuvchi mavjudligini tekshirish
-  const user = await UserModel.findOne({ tgId: ctx.from?.id }).lean();
+// async function setLang(ctx: MyContext, lang: string) {
+//   // Foydalanuvchi mavjudligini tekshirish
+//   const user = await UserModel.findOne({ tgId: ctx.from?.id }).lean();
   
-  if (user) {
-    // Agar foydalanuvchi bazada bo'lsa, yangilash (faqat til)
-    await UserModel.findByIdAndUpdate(
-      user._id,
-      {
-        $set: { lang: lang },
-      },
-      { lean: true },
-    );
-  }
-  // Agar foydalanuvchi bazada yo'q bo'lsa, bazaga yozmaslik
-  // Faqat session da saqlash
-  // Bazaga yozish faqat ism va telefon kiritilgandan keyin bo'ladi
+//   if (user) {
+//     // Agar foydalanuvchi bazada bo'lsa, yangilash (faqat til)
+//     await UserModel.findByIdAndUpdate(
+//       user._id,
+//       {
+//         $set: { lang: lang },
+//       },
+//       { lean: true },
+//     );
+//   }
+//   // Agar foydalanuvchi bazada yo'q bo'lsa, bazaga yozmaslik
+//   // Faqat session da saqlash
+//   // Bazaga yozish faqat ism va telefon kiritilgandan keyin bo'ladi
   
-  // Session da saqlash
-  ctx.session.user.lang = lang;
-  ctx.i18n.locale(lang);
-}
+//   // Session da saqlash
+//   ctx.session.user.lang = lang;
+//   ctx.i18n.locale(lang);
+// }
 
-bot.callbackQuery(CallbackActions.SETTINGS, async (ctx) => {
-  await ctx.answerCallbackQuery();
+// bot.callbackQuery(CallbackActions.SETTINGS, async (ctx) => {
+//   await ctx.answerCallbackQuery();
 
-  if (ctx.session.is_editable_message == true) {
-    return await ctx.editMessageText(ctx.i18n.t("menu.settingsContent"), {
-      reply_markup: settingsInline(ctx),
-    });
-  } else {
-    ctx.session.is_editable_message = true;
-    return await ctx.reply(ctx.i18n.t("menu.settingsContent"), {
-      reply_markup: settingsInline(ctx),
-    });
-  }
-});
+//   if (ctx.session.is_editable_message == true) {
+//     return await ctx.editMessageText(ctx.i18n.t("menu.settingsContent"), {
+//       reply_markup: settingsInline(ctx),
+//     });
+//   } else {
+//     ctx.session.is_editable_message = true;
+//     return await ctx.reply(ctx.i18n.t("menu.settingsContent"), {
+//       reply_markup: settingsInline(ctx),
+//     });
+//   }
+// });
 
-bot.callbackQuery(CallbackActions.LANG_LIST, async (ctx) => {
-  await ctx.answerCallbackQuery();
+// bot.callbackQuery(CallbackActions.LANG_LIST, async (ctx) => {
+//   await ctx.answerCallbackQuery();
 
-  if (ctx.session.is_editable_message == true) {
-    return await ctx.editMessageText(ctx.i18n.t("menu.langListContent"), {
-      reply_markup: languagesListInline(ctx),
-    });
-  } else {
-    ctx.session.is_editable_message = true;
-    return await ctx.reply(ctx.i18n.t("menu.langListContent"), {
-      reply_markup: languagesListInline(ctx),
-    });
-  }
-});
+//   if (ctx.session.is_editable_message == true) {
+//     return await ctx.editMessageText(ctx.i18n.t("menu.langListContent"), {
+//       reply_markup: languagesListInline(ctx),
+//     });
+//   } else {
+//     ctx.session.is_editable_message = true;
+//     return await ctx.reply(ctx.i18n.t("menu.langListContent"), {
+//       reply_markup: languagesListInline(ctx),
+//     });
+//   }
+// });
 
-bot.callbackQuery(
-  new RegExp(`^${CallbackActions.CHANGE_LANG}.`),
-  async (ctx) => {
-    await ctx.answerCallbackQuery();
+// bot.callbackQuery(
+//   new RegExp(`^${CallbackActions.CHANGE_LANG}.`),
+//   async (ctx) => {
+//     await ctx.answerCallbackQuery();
 
-    const [, lang] = ctx.callbackQuery.data.split(".");
+//     const [, lang] = ctx.callbackQuery.data.split(".");
 
-    if (ctx.session.user.lang == lang && ctx.session.user_state !== "REGISTER_LANG") return;
+//     if (ctx.session.user.lang == lang && ctx.session.user_state !== "REGISTER_LANG") return;
 
-    await setLang(ctx, lang as string);
+//     await setLang(ctx, lang as string);
 
-    if (ctx.session.user_state === "REGISTER_LANG") {
-      await ctx.deleteMessage();
+//     if (ctx.session.user_state === "REGISTER_LANG") {
+//       await ctx.deleteMessage();
       
-      // Foydalanuvchi mavjudligini tekshirish
-      const user = await UserModel.findOne({ tgId: ctx.from?.id }).lean();
+//       // Foydalanuvchi mavjudligini tekshirish
+//       const user = await UserModel.findOne({ tgId: ctx.from?.id }).lean();
       
-      // Agar foydalanuvchi to'liq ro'yxatdan o'tgan bo'lsa (ism va telefon bor), kod so'rash yuborish
-      if (user && user.firstName && user.phoneNumber) {
-        const { FORWARD_MESSAGES_CHANNEL_ID, messageIds } = await import('../config');
-        await ctx.api.forwardMessage(
-          ctx.from.id, 
-          FORWARD_MESSAGES_CHANNEL_ID, 
-          messageIds[ctx.i18n.languageCode as 'uz' | 'ru'].start
-        );
-        ctx.session.user_state = '';
-        return;
-      }
+//       // Agar foydalanuvchi to'liq ro'yxatdan o'tgan bo'lsa (ism va telefon bor), kod so'rash yuborish
+//       if (user && user.firstName && user.phoneNumber) {
+//         const { FORWARD_MESSAGES_CHANNEL_ID, messageIds } = await import('../config');
+//         await ctx.api.forwardMessage(
+//           ctx.from.id, 
+//           FORWARD_MESSAGES_CHANNEL_ID, 
+//           messageIds[ctx.i18n.languageCode as 'uz' | 'ru'].start
+//         );
+//         ctx.session.user_state = '';
+//         return;
+//       }
       
-      // Agar foydalanuvchi to'liq ro'yxatdan o'tmagan bo'lsa (ism yoki telefon yo'q), ism so'rash
-      // REGISTER_NAME holatini o'rnatish va ism so'rash xabarini yuborish
-      ctx.session.user_state = 'REGISTER_NAME';
-      return await registerUserFirstName(ctx);
-    }
+//       // Agar foydalanuvchi to'liq ro'yxatdan o'tmagan bo'lsa (ism yoki telefon yo'q), ism so'rash
+//       // REGISTER_NAME holatini o'rnatish va ism so'rash xabarini yuborish
+//       ctx.session.user_state = 'REGISTER_NAME';
+//       return await registerUserFirstName(ctx);
+//     }
 
-    if (ctx.session.is_editable_message == true) {
-      return await ctx.editMessageText(ctx.i18n.t("menu.langListContent"), {
-        reply_markup: languagesListInline(ctx),
-      });
-    } else {
-      ctx.session.is_editable_message = true;
-      return await ctx.reply(ctx.i18n.t("menu.langListContent"), {
-        reply_markup: languagesListInline(ctx),
-      });
-    }
-  },
-);
+//     if (ctx.session.is_editable_message == true) {
+//       return await ctx.editMessageText(ctx.i18n.t("menu.langListContent"), {
+//         reply_markup: languagesListInline(ctx),
+//       });
+//     } else {
+//       ctx.session.is_editable_message = true;
+//       return await ctx.reply(ctx.i18n.t("menu.langListContent"), {
+//         reply_markup: languagesListInline(ctx),
+//       });
+//     }
+//   },
+// );

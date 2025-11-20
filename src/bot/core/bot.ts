@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { BOT_TOKEN } from '../config';
 import { MyContext } from '../types/types';
-import { checkUserMiddleWare, i18n, sessionMiddleware } from './middleware';
+// import { checkUserMiddleWare, i18n, sessionMiddleware } from './middleware';
 
 // --- BOT INIT ---
 if (!BOT_TOKEN) {
@@ -16,12 +16,12 @@ bot.command('test', async (ctx) => {
   await ctx.reply("Test komanda ishladi ✔️");
 });
 
-// --- MIDDLEWARES ---
-bot.use(sessionMiddleware);   // session
-bot.use(i18n.middleware());   // localization
-bot.use(checkUserMiddleWare); // user registration flow
+// // --- MIDDLEWARES ---
+// bot.use(sessionMiddleware);   // session
+// bot.use(i18n.middleware());   // localization
+// bot.use(checkUserMiddleWare); // user registration flow
 
-// --- COMMAND LIST ---
+// // --- COMMAND LIST ---
 bot.api.setMyCommands([
   { command: 'start', description: 'Botni ishga tushirish' },
 ]);
