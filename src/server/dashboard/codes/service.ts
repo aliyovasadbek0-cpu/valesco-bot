@@ -88,18 +88,27 @@ export class DashboardCodesService {
     const $sort: PipelineStage.Sort = { $sort: { usedAtDate: -1, id: 1 } };
     const $skip: PipelineStage.Skip = { $skip: (query.page - 1) * query.limit };
     const $limit: PipelineStage.Limit = { $limit: query.limit };
+  // data pipeline
+const dataPipeline: PipelineStage[] = [...pipeline, $sort, $skip, $limit];
 
-    const result = await this.codeModel.aggregate<{
-      data: any[];
-      total: [{ total: number }];
-    }>([
-      {
-        $facet: {
-          data: [...pipeline, $sort, $skip, $limit],
-          total: [...pipeline, { $count: 'total' }],
-        },
-      },
-    ]);
+// total count pipeline
+const totalPipeline: PipelineStage[] = [...pipeline, { $count: 'total' }];
+
+// aggregate
+const result = await this.codeModel.aggregate<{
+  data: any[];
+  total: [{ total: number }];
+}>([
+  {
+    $facet: {
+      data: dataPipeline as any,
+      total: totalPipeline as any,
+    },
+  },
+]);
+
+
+
 
     const records = result[0]?.data ?? [];
     const total = result[0]?.total?.[0]?.total ?? 0;
