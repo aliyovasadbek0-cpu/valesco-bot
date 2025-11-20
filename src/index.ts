@@ -3,6 +3,7 @@ import app from './server/server';
 import { Server } from 'http';
 import { runCronJobs } from "./common/cron-job/cron-job";
 import { mongoDataBase } from './db/connect.db';
+import { ensureSuperAdmin } from './db/seed/ensure-super-admin';
 
 let server: Server;
 let status: 'online' | 'offline' | 'starting' | 'stopping' = 'offline';
@@ -17,6 +18,8 @@ async function runServer() {
     return err; // graceFullShutdown(err)
   }
   console.log("success connect: mongoDataBase ");
+
+  await ensureSuperAdmin();
 
   await import('./bot/core/index');
   // /* Cron - Job */

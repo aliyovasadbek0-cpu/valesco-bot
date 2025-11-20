@@ -11,6 +11,11 @@ export enum UserStatus {
   ACTIVE = 'active',
   BLOCK = 'block',
 }
+
+export enum UserRole {
+  SUPER_ADMIN = 'superAdmin',
+  ADMIN = 'admin',
+}
 @modelOptions({
   schemaOptions: {
     collection: COLLECTIONS.users,
@@ -84,6 +89,9 @@ export class User {
 
   @prop({ default: new Date().toISOString() })
   lastUseAt!: string;
+
+  @prop({ type: String, enum: UserRole, default: UserRole.ADMIN })
+  role!: UserRole;
 
   updatedAt: string;
   createdAt: string;

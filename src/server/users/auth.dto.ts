@@ -1,7 +1,9 @@
 import { JwtPayload } from 'jsonwebtoken';
+import { UserRole } from '../../db/models/users.model';
 
 export interface UserWTPayloadInterface extends JwtPayload {
   _id: string;
+  role: UserRole;
 }
 
 declare module 'express' {

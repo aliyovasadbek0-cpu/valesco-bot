@@ -6,6 +6,7 @@ import { UserService } from './service';
 import { CommonDtoGroup } from '../../common/validation/dto/common.dto';
 import { UserException } from './error';
 import { StatusCodes } from '../../common/utility/status-codes'; // <— kerak bo‘ladi
+import { UserRole } from '../../db/models/users.model';
 
 class UserController {
   private readonly userService = new UserService();
@@ -25,15 +26,7 @@ class UserController {
   // 🧩 Foydalanuvchi yaratish (POST /users)
   async create(req: Request, res: Response) {
     const body = await validateIt(req.body, UserDto, [UserDtoGroup.CREATE]);
-
-    // Agar ro‘llarga tekshiruv kerak bo‘lmasa, quyidagi qismni olib tashlaymiz:
-    // if (!roleAccess[req.user.role].includes(body.role)) {
-    //   return res.status(403).send({
-    //     error: 'Access denied',
-    //     data: {},
-    //     code: 101,
-    //   });
-    // }
+    body.role = UserRole.ADMIN;
 
     // 👉 Asl metod: createUser
     const user = await this.userService.createUser(body);
@@ -42,6 +35,7 @@ class UserController {
 
   async updateById(req: Request, res: Response) {
     const body = await validateIt(req.body, UserDto, [UserDtoGroup.UPDATE]);
+    body.role = undefined;
 
     if (body.password) {
       if (body.password !== body.confirmPassword) {
@@ -62,7 +56,11 @@ class UserController {
       return res.status(400).send({ message: 'Invalid user id' });
     }
 
-    const user = await this.userService.findById(id);
+    const user = await this.userService.findById(id, null, { lean: true });
+
+    if (!user || (user as any).role !== UserRole.ADMIN) {
+      throw UserException.NotFound();
+    }
 
     return res.success(user);
   }
@@ -99,6 +97,16 @@ class UserController {
       return res.status(400).json({ error: 'invalid mongoId' });
     }
 
+    if (req.user?._id === id) {
+      throw UserException.CannotDeleteYourSelf(StatusCodes.FORBIDDEN);
+    }
+
+    const user = await this.userService.findById(id, null, { lean: true });
+
+    if (!user || (user as any).role !== UserRole.ADMIN) {
+      throw UserException.NotFound();
+    }
+
     await this.userService.deleteById(id, req.user._id);
 
     return res.success({ id: id });
@@ -107,7 +115,6 @@ class UserController {
   //! 🧩 Auth
   public async login(req: Request, res: Response) {
     const body = await validateIt(req.body, UserLoginRequestDto, [CommonDtoGroup.CREATE]);
-    console.log("body", body);
     const data = await this.userService.login(body);
     return res.success(data, {});
   }
@@ -132,6 +139,16 @@ class UserController {
     const body = await validateIt(req.body, UserLoginRequestDto, [CommonDtoGroup.UPDATE]);
     const data = await this.userService.refreshToken(body.refreshToken);
     return res.success(data, {});
+  }
+
+  authorizeRoles(...roles: UserRole[]) {
+    return (req: Request, res: Response, next: NextFunction) => {
+      if (!req.user || !roles.includes(req.user.role as UserRole)) {
+        return res.status(StatusCodes.FORBIDDEN).json(UserException.NotEnoughPermission(StatusCodes.FORBIDDEN));
+      }
+
+      next();
+    };
   }
 }
 

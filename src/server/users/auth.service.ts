@@ -1,6 +1,6 @@
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { User, UserModel } from '../../db/models/users.model';
+import { User, UserModel, UserRole } from '../../db/models/users.model';
 import { BaseService } from '../base.service';
 import { UserException } from './error';
 import { ENV } from '../../common/config/config';
@@ -15,16 +15,26 @@ export class UserAuthService<Dto> extends BaseService<User, Dto> {
   }
 
   async login({ username, password }) {
-    const user = await this.model.findOne({ username: username }, { _id: 1, password: 1 }).lean();
+    const user = await this.model
+      .findOne(
+        {
+          username: username,
+          deletedAt: null,
+          role: { $in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] },
+        },
+        { _id: 1, password: 1, role: 1 },
+      )
+      .lean();
 
     if (!user || !(await this.comparePassword(password, user.password))) {
       throw UserException.Unauthorized();
     }
 
-    const jwtPayload: UserWTPayloadInterface = { _id: user._id.toString() };
+    const jwtPayload: UserWTPayloadInterface = { _id: user._id.toString(), role: user.role };
     return {
       accessToken: await this.signAsync(jwtPayload, 'access'),
       refreshToken: await this.signAsync(jwtPayload, 'refresh'),
+      role: user.role,
     };
   }
 
@@ -33,9 +43,9 @@ export class UserAuthService<Dto> extends BaseService<User, Dto> {
       .findOne(
         {
           _id: id,
-          isDeleted: false,
+          deletedAt: null,
         },
-        { _id: 1, firstName: 1, lastName: 1, username: 1, image: 1, lang: 1, phoneNumber: 1 },
+        { _id: 1, firstName: 1, lastName: 1, username: 1, image: 1, lang: 1, phoneNumber: 1, role: 1 },
       )
       .lean();
 
@@ -52,18 +62,28 @@ export class UserAuthService<Dto> extends BaseService<User, Dto> {
     return {
       accessToken: await this.signAsync(decoded, 'access'),
       refreshToken: await this.signAsync(decoded, 'refresh'),
+      role: decoded.role,
     };
   }
 
   async authorizeUser(token: string, tokenType: 'access' | 'refresh') {
     const decoded = await this.verifyJwt(token, tokenType);
 
-    // Check if the user's role is authorized to access the endpoint
-    if (!decoded) {
+    if (!decoded?._id) {
       throw UserException.Unauthorized();
     }
 
-    return decoded;
+    const userId = decoded._id.toString();
+    const user = await this.model.findOne({ _id: userId, deletedAt: null }, { role: 1 }).lean();
+
+    if (!user) {
+      throw UserException.Unauthorized();
+    }
+
+    return {
+      _id: userId,
+      role: user.role,
+    };
   }
 
   async hashPassword(password: string | Buffer, saltOrRounds?: number | string): Promise<string> {

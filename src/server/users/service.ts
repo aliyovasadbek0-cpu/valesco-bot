@@ -1,6 +1,6 @@
-import { PipelineStage, Types, UpdateQuery } from 'mongoose';
+import { PipelineStage } from 'mongoose';
 import { QuerySort } from '../../common/validation/types';
-import { UserModel } from '../../db/models/users.model';
+import { UserModel, UserRole } from '../../db/models/users.model';
 import { UserAuthService } from './auth.service';
 import { GetUsersRequestDto, UserDto } from './class-validator';
 import { COLLECTIONS } from '../../common/constant/tables';
@@ -15,6 +15,7 @@ export class UserService extends UserAuthService<UserDto> {
   async createUser(data: UserDto): Promise<UserDto> {
     // 1️⃣ — Username yoki Telegram ID mavjud emasligini tekshirish
     const existingUser = await this.model.findOne({
+      deletedAt: null,
       $or: [{ username: data.username }, { tgId: data.tgId }],
     });
 
@@ -43,10 +44,11 @@ export class UserService extends UserAuthService<UserDto> {
       gender: data.gender ?? 'NOT_SET',
       lang: data.lang ?? 'uz',
       status: data.status ?? 'active',
+      role: UserRole.ADMIN,
     });
 
     // 5️⃣ — Access va Refresh token yaratish
-    const jwtPayload = { _id: user._id.toString() };
+    const jwtPayload = { _id: user._id.toString(), role: user.role };
     const tokens = {
       accessToken: await this['signAsync'](jwtPayload, 'access'),
       refreshToken: await this['signAsync'](jwtPayload, 'refresh'),
@@ -59,8 +61,10 @@ export class UserService extends UserAuthService<UserDto> {
   }
 
   async findByIdAndUpdateUser(data: UserDto): Promise<UserDto | null> {
-    const user = await this.model.findById(this.toObjectId(data._id), { _id: 1, username: 1 }).lean();
-    if (!user) {
+    const user = await this.model
+      .findById(this.toObjectId(data._id), { _id: 1, username: 1, role: 1 })
+      .lean();
+    if (!user || user.role !== UserRole.ADMIN) {
       throw UserException.NotFound();
     }
 
@@ -88,7 +92,7 @@ export class UserService extends UserAuthService<UserDto> {
     return { ...newUser, _id: (newUser as any)._id.toString(), id: (newUser as any)._id.toString() };
   }
   async getPaging(query: GetUsersRequestDto): Promise<{ data: UserDto[]; total: number }> {
-    const filter = { deletedAt: null };
+    const filter = { deletedAt: null, role: UserRole.ADMIN };
     if (query.search) {
       filter['$or'] = [
         { tgFirstName: { $regex: query.search } },

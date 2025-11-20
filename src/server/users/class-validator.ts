@@ -10,7 +10,7 @@ import {
 import { PagingDto } from '../../common/validation/dto/paging.dto';
 import { CommonDto, CommonDtoGroup } from '../../common/validation/dto/common.dto';
 import { regexps } from '../../common/constant/regex';
-import { Gender, UserStatus } from '../../db/models/users.model';
+import { Gender, UserStatus, UserRole } from '../../db/models/users.model';
 
 /**
  * Guruhlar
@@ -128,6 +128,10 @@ export class UserDto extends CommonDto {
   @IsOptional({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
   @IsEnum(UserStatus, { groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
   status!: UserStatus;
+
+  @IsOptional({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  @IsEnum(UserRole, { groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  role?: UserRole;
 }
 
 /**
