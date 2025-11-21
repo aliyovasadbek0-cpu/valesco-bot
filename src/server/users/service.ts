@@ -45,6 +45,10 @@ export class UserService extends UserAuthService<UserDto> {
       lang: data.lang ?? 'uz',
       status: data.status ?? 'active',
       role: UserRole.ADMIN,
+      birthday: data.birthday ?? null,
+      email: data.email ?? '',
+      address: data.address ?? '',
+      phoneNumber: data.phoneNumber ?? '',
     });
 
     // 5️⃣ — Access va Refresh token yaratish

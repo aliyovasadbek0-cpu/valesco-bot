@@ -6,7 +6,7 @@ import { UserService } from './service';
 import { CommonDtoGroup } from '../../common/validation/dto/common.dto';
 import { UserException } from './error';
 import { StatusCodes } from '../../common/utility/status-codes'; // <— kerak bo‘ladi
-import { UserRole } from '../../db/models/users.model';
+import { Gender, UserRole } from '../../db/models/users.model';
 
 class UserController {
   private readonly userService = new UserService();
@@ -74,7 +74,22 @@ class UserController {
 
     const user = await this.userService.getMe(id);
 
-    return res.success(user);
+    const fullNameParts = [
+      user.firstName || user.tgFirstName || '',
+      user.lastName || user.tgLastName || '',
+    ].filter(Boolean);
+
+    const profile = {
+      fullName: fullNameParts.join(' ') || user.username || '',
+      email: user.email || '',
+      phoneNumber: user.phoneNumber || '',
+      address: user.address || '',
+      dateOfBirth: user.birthday || null,
+      gender: user.gender || Gender.NotSet,
+      registeredDate: user.createdAt || null,
+    };
+
+    return res.success(profile);
   }
 
   public async getAll(req: Request, res: Response) {

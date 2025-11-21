@@ -45,7 +45,23 @@ export class UserAuthService<Dto> extends BaseService<User, Dto> {
           _id: id,
           deletedAt: null,
         },
-        { _id: 1, firstName: 1, lastName: 1, username: 1, image: 1, lang: 1, phoneNumber: 1, role: 1 },
+        {
+          _id: 1,
+          firstName: 1,
+          lastName: 1,
+          tgFirstName: 1,
+          tgLastName: 1,
+          username: 1,
+          image: 1,
+          lang: 1,
+          phoneNumber: 1,
+          role: 1,
+          email: 1,
+          address: 1,
+          birthday: 1,
+          gender: 1,
+          createdAt: 1,
+        },
       )
       .lean();
 

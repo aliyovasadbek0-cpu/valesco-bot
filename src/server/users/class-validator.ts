@@ -60,6 +60,14 @@ export class UserDto extends CommonDto {
   })
   birthday?: string;
 
+  @IsOptional({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  @IsString({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  email?: string;
+
+  @IsOptional({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  @IsString({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })
+  address?: string;
+
   // password / confirmPassword
   @IsOptional({ groups: [UserDtoGroup.UPDATE] })
   @IsString({ groups: [UserDtoGroup.CREATE, UserDtoGroup.UPDATE] })

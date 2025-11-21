@@ -108,8 +108,6 @@ const result = await this.codeModel.aggregate<{
 ]);
 
 
-
-
     const records = result[0]?.data ?? [];
     const total = result[0]?.total?.[0]?.total ?? 0;
 
@@ -292,4 +290,5 @@ const result = await this.codeModel.aggregate<{
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }
+
 

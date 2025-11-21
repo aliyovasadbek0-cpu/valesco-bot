@@ -20,3 +20,4 @@ export class DashboardGiftCodesDto extends PagingDto {
   status?: DashboardGiftCodeStatus;
 }
 
+

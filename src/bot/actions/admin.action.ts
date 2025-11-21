@@ -188,11 +188,7 @@ bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_CODES}_confirm$`), 
   await ctx.answerCallbackQuery();
 
   try {
-    // Avval o'chiriladigan kodlar sonini hisoblaymiz
-    const count = await CodeModel.countDocuments({ deletedAt: null });
-    
-    // Kodlarni to'liq o'chiramiz
-    const result = await CodeModel.deleteMany({ deletedAt: null });
+    const result = await CodeModel.deleteMany({});
 
     await ctx.editMessageText(
       `✅ <b>Kodlar tozalandi!</b>\n\nO'chirilgan kodlar soni: <b>${result.deletedCount}</b>`,
@@ -242,14 +238,36 @@ bot.callbackQuery(new RegExp(`^${CallbackActions.ADMIN_CLEAR_WINNERS}_confirm$`)
   await ctx.answerCallbackQuery();
 
   try {
-    // Avval o'chiriladigan g'olib kodlar sonini hisoblaymiz
-    const count = await WinnerModel.countDocuments({ deletedAt: null });
-    
-    // G'olib kodlarni to'liq o'chiramiz
-    const result = await WinnerModel.deleteMany({ deletedAt: null });
+    const winners = await WinnerModel.find({}, { value: 1 }).lean();
+    const winnerCount = winners.length;
+    const winnerDeleteResult = await WinnerModel.deleteMany({});
+
+    let codeDeleteCount = 0;
+    if (winnerCount > 0) {
+      const variants = new Set<string>();
+      for (const winner of winners) {
+        const raw = winner.value?.toString().trim();
+        if (!raw) continue;
+        variants.add(raw);
+        const upper = raw.toUpperCase();
+        variants.add(upper);
+        const noHyphen = upper.replace(/-/g, '');
+        if (noHyphen) {
+          variants.add(noHyphen);
+          if (noHyphen.length > 6) {
+            variants.add(`${noHyphen.slice(0, 6)}-${noHyphen.slice(6)}`);
+          }
+        }
+      }
+
+      if (variants.size > 0) {
+        const codeDeleteResult = await CodeModel.deleteMany({ value: { $in: Array.from(variants) } });
+        codeDeleteCount = codeDeleteResult.deletedCount ?? 0;
+      }
+    }
 
     await ctx.editMessageText(
-      `✅ <b>G'olib kodlar tozalandi!</b>\n\nO'chirilgan kodlar soni: <b>${result.deletedCount}</b>`,
+      `✅ <b>G'olib kodlar tozalandi!</b>\n\nG'oliblar: <b>${winnerDeleteResult.deletedCount}</b>\nKodlar: <b>${codeDeleteCount}</b>`,
       { 
         parse_mode: 'HTML',
         reply_markup: getAdminKeyboard(),

@@ -78,6 +78,12 @@ export class User {
   @prop({ default: null })
   birthday?: string;
 
+  @prop({ default: '', trim: true })
+  email?: string;
+
+  @prop({ default: '', trim: true })
+  address?: string;
+
   @prop({ default: null })
   image?: string;
 
