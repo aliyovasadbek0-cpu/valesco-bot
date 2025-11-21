@@ -1,6 +1,7 @@
 import { PipelineStage, Types } from 'mongoose';
 import { CodeModel } from '../../../db/models/codes.model';
 import { WinnerModel } from '../../../db/models/winners.model';
+import { UserRole } from '../../../db/models/users.model';
 import { DashboardGiftCodesDto, DashboardGiftCodeStatus } from '../gift-codes/class-validator';
 import { DashboardCodesDto } from './class-validator';
 import { COLLECTIONS } from '../../../common/constant/tables';
@@ -15,13 +16,11 @@ export class DashboardCodesService {
   constructor(private readonly codeModel = CodeModel, private readonly winnerModel = WinnerModel) {}
 
   async getGiftCodes(query: DashboardGiftCodesDto) {
-    // Bu endpoint endi g'olib kodlar ro'yxatini qaytaradi (WinnerModel dan)
+    // Bu endpoint faqat sovg'a olganlar ro'yxatini qaytaradi
     query.limit = query.limit ?? 10;
     query.page = query.page ?? 1;
 
-    return this.aggregateWinnerCodes({
-      query,
-    });
+    return this.aggregateGiftReceivers(query);
   }
 
   async getWinnerCodes(query: DashboardGiftCodesDto) {
@@ -37,8 +36,6 @@ export class DashboardCodesService {
   private async aggregateWinnerCodes({ query }: { query: DashboardGiftCodesDto }) {
     const baseFilter: PipelineStage.Match['$match'] = {
       deletedAt: null,
-      isUsed: true,
-      usedAt: { $ne: null },
     };
 
     const pipeline: PipelineStage[] = [
@@ -59,24 +56,17 @@ export class DashboardCodesService {
     const $skip: PipelineStage.Skip = { $skip: (query.page - 1) * query.limit };
     const $limit: PipelineStage.Limit = { $limit: query.limit };
 
-     // data pipeline
-const dataPipeline: PipelineStage[] = [...pipeline, $sort, $skip, $limit];
-
-// total count pipeline
-const totalPipeline: PipelineStage[] = [...pipeline, { $count: 'total' }];
-
-// aggregate
-const result = await this.codeModel.aggregate<{
-  data: any[];
-  total: [{ total: number }];
-}>([
-  {
-    $facet: {
-      data: dataPipeline as any,
-      total: totalPipeline as any,
-    },
-  },
-]);
+    const result = await this.winnerModel.aggregate<{
+      data: any[];
+      total: [{ total: number }];
+    }>([
+      {
+        $facet: {
+          data: [...pipeline as any[], $sort, $skip, $limit],
+          total: [...pipeline as any[], { $count: 'total' }],
+        },
+      },
+    ]);
 
     const records = result[0]?.data ?? [];
     const total = result[0]?.total?.[0]?.total ?? 0;
@@ -91,36 +81,13 @@ const result = await this.codeModel.aggregate<{
     query.limit = query.limit ?? 10;
     query.page = query.page ?? 1;
 
-    const baseFilter = this.buildBaseFilter();
-
-    if (query.giftId) {
-      baseFilter['giftId'] = new Types.ObjectId(query.giftId);
-    }
-
-    const postLookupMatches: PipelineStage[] = [];
-
-    if (query.giftNames?.length) {
-      postLookupMatches.push({
-        $match: {
-          $or: query.giftNames.map((name) => ({
-            giftName: { $regex: new RegExp(this.escapeRegex(name), 'i') },
-          })),
-        },
-      });
-    }
-
-    return this.aggregateCodes({
-      query,
-      baseFilter,
-      postLookupMatches,
-    });
+    // Ikkala collection'dan ham ma'lumot olamiz
+    return this.aggregateFromBothCollections(query);
   }
 
   private buildBaseFilter(): PipelineStage.Match['$match'] {
     return {
       deletedAt: null,
-      isUsed: true,
-      usedAt: { $ne: null },
     };
   }
 
@@ -143,24 +110,19 @@ const result = await this.codeModel.aggregate<{
     const $sort: PipelineStage.Sort = { $sort: { usedAtDate: -1, id: 1 } };
     const $skip: PipelineStage.Skip = { $skip: (query.page - 1) * query.limit };
     const $limit: PipelineStage.Limit = { $limit: query.limit };
-  // data pipeline
-const dataPipeline: PipelineStage[] = [...pipeline, $sort, $skip, $limit];
 
-// total count pipeline
-const totalPipeline: PipelineStage[] = [...pipeline, { $count: 'total' }];
+    const result = await this.codeModel.aggregate<{
+      data: any[];
+      total: [{ total: number }];
+    }>([
+      {
+        $facet: {
+          data: [...pipeline as any[], $sort, $skip, $limit],
+          total: [...pipeline as any[], { $count: 'total' }],
+        },
+      },
+    ]);
 
-// aggregate
-const result = await this.codeModel.aggregate<{
-  data: any[];
-  total: [{ total: number }];
-}>([
-  {
-    $facet: {
-      data: dataPipeline as any,
-      total: totalPipeline as any,
-    },
-  },
-]);
     const records = result[0]?.data ?? [];
     const total = result[0]?.total?.[0]?.total ?? 0;
 
@@ -179,6 +141,7 @@ const result = await this.codeModel.aggregate<{
           {
             $match: {
               $expr: { $eq: ['$_id', '$$usedById'] },
+              role: { $nin: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
             },
           },
           {
@@ -352,11 +315,12 @@ const result = await this.codeModel.aggregate<{
     const regex = new RegExp(this.escapeRegex(searchTerm), 'i');
     const searchNum = isNaN(Number(searchTerm)) ? null : Number(searchTerm);
 
-    // 1. Foydalanuvchilarni topish
+    // 1. Foydalanuvchilarni topish (admin'larsiz)
     const users = await this.codeModel.db
       .collection(COLLECTIONS.users)
       .find({
         deletedAt: null,
+        role: { $nin: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
         $or: [
           { firstName: { $regex: regex } },
           { lastName: { $regex: regex } },
@@ -393,6 +357,7 @@ const result = await this.codeModel.aggregate<{
                     $match: {
                       $expr: { $eq: ['$_id', '$$userId'] },
                       deletedAt: null,
+                      role: { $nin: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
                       $or: [
                         { firstName: { $regex: regex } },
                         { lastName: { $regex: regex } },
@@ -448,6 +413,7 @@ const result = await this.codeModel.aggregate<{
                     $match: {
                       $expr: { $eq: ['$_id', '$$userId'] },
                       deletedAt: null,
+                      role: { $nin: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
                       $or: [
                         { firstName: { $regex: regex } },
                         { lastName: { $regex: regex } },
@@ -488,24 +454,12 @@ const result = await this.codeModel.aggregate<{
         },
       },
     ];
-const [codesResult, winnersResult] = await Promise.all([
-  this.codeModel.aggregate([
-    {
-      $facet: {
-        data: codesPipeline as any,
-      },
-    },
-  ]).exec(),
 
-  this.winnerModel.aggregate([
-    {
-      $facet: {
-        data: winnersPipeline as any,
-      },
-    },
-  ]).exec(),
-]);
-
+    // Parallel aggregate qilish
+    const [codesResult, winnersResult] = await Promise.all([
+      this.codeModel.aggregate([{ $facet: { data: codesPipeline as any[] } }]).exec(),
+      this.winnerModel.aggregate([{ $facet: { data: winnersPipeline as any[] } }]).exec(),
+    ]);
 
     const codesData = codesResult[0]?.data || [];
     const winnersData = winnersResult[0]?.data || [];
@@ -534,6 +488,174 @@ const [codesResult, winnersResult] = await Promise.all([
 
   private escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+private async aggregateGiftReceivers(query: DashboardGiftCodesDto) {
+  const baseFilter: Record<string, any> = {
+    deletedAt: null,
+    isUsed: true,
+    usedAt: { $ne: null },
+    giftId: { $ne: null },
+  };
+
+  if ('giftId' in query && query.giftId) {
+    baseFilter.giftId = new Types.ObjectId(String(query.giftId));
+  }
+
+    const pipeline: PipelineStage[] = [
+      { $match: baseFilter },
+      this.lookupUserStage(),
+      this.lookupGiftStage(),
+      this.flattenLookupStage(),
+      this.usedAtStage(),
+      this.derivedFieldsStage(),
+    ];
+
+    // Gift names filter
+    if ('giftNames' in query && Array.isArray(query.giftNames) && query.giftNames.length) {
+      pipeline.push({
+        $match: {
+          $or: query.giftNames.map((name: string) => ({
+            giftName: { $regex: new RegExp(this.escapeRegex(name), 'i') },
+          })),
+        },
+      });
+    }
+
+    // Search filter
+    const searchStage = this.buildSearchStage(query.search);
+    if (searchStage) {
+      pipeline.push(searchStage);
+    }
+
+    // Parallel queries from both collections (faqat sovg'a olganlar)
+    const [codesResult, winnersResult] = await Promise.all([
+      this.codeModel.aggregate([
+        {
+          $facet: {
+            data: [...pipeline as any[], { $sort: { usedAtDate: -1, id: 1 } }],
+            total: [...pipeline as any[], { $count: 'total' }],
+          },
+        },
+      ]).exec(),
+      this.winnerModel.aggregate([
+        {
+          $facet: {
+            data: [...pipeline as any[], { $sort: { usedAtDate: -1, id: 1 } }],
+            total: [...pipeline as any[], { $count: 'total' }],
+          },
+        },
+      ]).exec(),
+    ]);
+
+    const codesData = codesResult[0]?.data || [];
+    const winnersData = winnersResult[0]?.data || [];
+    const codesTotal = codesResult[0]?.total?.[0]?.total || 0;
+    const winnersTotal = winnersResult[0]?.total?.[0]?.total || 0;
+
+    // Combine and sort all results (faqat sovg'a olganlar)
+    const allResults = [
+      ...codesData.map((r: any) => ({ ...r, _source: 'code' })),
+      ...winnersData.map((r: any) => ({ ...r, _source: 'winner' })),
+    ].sort((a: any, b: any) => {
+      // Sort by usedAtDate (newest first), then by id
+      const aDate = a.usedAtDate ? new Date(a.usedAtDate).getTime() : 0;
+      const bDate = b.usedAtDate ? new Date(b.usedAtDate).getTime() : 0;
+      if (bDate !== aDate) return bDate - aDate;
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    // Pagination
+    const total = codesTotal + winnersTotal;
+    const startIndex = (query.page - 1) * query.limit;
+    const paginatedResults = allResults.slice(startIndex, startIndex + query.limit);
+
+    return {
+      data: paginatedResults.map((record: any) => this.transformRecord(record)),
+      total,
+    };
+  }
+
+  // Ikkala collection'dan ham ma'lumot olish
+  private async aggregateFromBothCollections(query: DashboardCodesDto | DashboardGiftCodesDto) {
+    const baseFilter = this.buildBaseFilter();
+
+    if ('giftId' in query && query.giftId) {
+      baseFilter['giftId'] = new Types.ObjectId(query.giftId);
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: baseFilter },
+      this.lookupUserStage(),
+      this.lookupGiftStage(),
+      this.flattenLookupStage(),
+      this.usedAtStage(),
+      this.derivedFieldsStage(),
+    ];
+
+    // Gift names filter
+    if ('giftNames' in query && Array.isArray(query.giftNames) && query.giftNames.length) {
+      pipeline.push({
+        $match: {
+          $or: query.giftNames.map((name: string) => ({
+            giftName: { $regex: new RegExp(this.escapeRegex(name), 'i') },
+          })),
+        },
+      });
+    }
+
+    // Search filter
+    const searchStage = this.buildSearchStage(query.search);
+    if (searchStage) {
+      pipeline.push(searchStage);
+    }
+
+    // Parallel queries from both collections
+    const [codesResult, winnersResult] = await Promise.all([
+      this.codeModel.aggregate([
+        {
+          $facet: {
+            data: [...pipeline as any[], { $sort: { usedAtDate: -1, id: 1 } }],
+            total: [...pipeline as any[], { $count: 'total' }],
+          },
+        },
+      ]).exec(),
+      this.winnerModel.aggregate([
+        {
+          $facet: {
+            data: [...pipeline as any[], { $sort: { usedAtDate: -1, id: 1 } }],
+            total: [...pipeline as any[], { $count: 'total' }],
+          },
+        },
+      ]).exec(),
+    ]);
+
+    const codesData = codesResult[0]?.data || [];
+    const winnersData = winnersResult[0]?.data || [];
+    const codesTotal = codesResult[0]?.total?.[0]?.total || 0;
+    const winnersTotal = winnersResult[0]?.total?.[0]?.total || 0;
+
+    // Combine and sort all results
+    const allResults = [
+      ...codesData.map((r: any) => ({ ...r, _source: 'code' })),
+      ...winnersData.map((r: any) => ({ ...r, _source: 'winner' })),
+    ].sort((a: any, b: any) => {
+      // Sort by usedAtDate (newest first), then by id
+      const aDate = a.usedAtDate ? new Date(a.usedAtDate).getTime() : 0;
+      const bDate = b.usedAtDate ? new Date(b.usedAtDate).getTime() : 0;
+      if (bDate !== aDate) return bDate - aDate;
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    // Pagination
+    const total = codesTotal + winnersTotal;
+    const startIndex = (query.page - 1) * query.limit;
+    const paginatedResults = allResults.slice(startIndex, startIndex + query.limit);
+
+    return {
+      data: paginatedResults.map((record: any) => this.transformRecord(record)),
+      total,
+    };
   }
 }
 

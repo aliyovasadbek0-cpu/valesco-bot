@@ -1,6 +1,6 @@
 import { PipelineStage } from 'mongoose';
 import { DashboardClientPagingDto } from './class-validator';
-import { UserModel } from '../../../db/models/users.model';
+import { UserModel, UserRole } from '../../../db/models/users.model';
 import { COLLECTIONS } from '../../../common/constant/tables';
 
 export class DashboardClientService {
@@ -10,7 +10,10 @@ export class DashboardClientService {
     query.limit = query.limit ?? 10;
     query.page = query.page ?? 1;
 
-    const baseMatch: PipelineStage.Match['$match'] = { deletedAt: null };
+    const baseMatch: PipelineStage.Match['$match'] = { 
+      deletedAt: null,
+      role: { $nin: [UserRole.ADMIN, UserRole.SUPER_ADMIN] }
+    };
 
     if (query.firstName) {
       baseMatch['firstName'] = { $regex: new RegExp(query.firstName, 'i') };
@@ -36,6 +39,7 @@ export class DashboardClientService {
 
     const searchRegex = query.search ? new RegExp(query.search, 'i') : null;
 
+    // Oddiy kodlar lookup
     const $lookupUsedCodes: PipelineStage.Lookup = {
       $lookup: {
         from: COLLECTIONS.codes,
@@ -59,12 +63,42 @@ export class DashboardClientService {
       },
     };
 
+    // G'olib kodlar lookup
+    const $lookupUsedWinners: PipelineStage.Lookup = {
+      $lookup: {
+        from: COLLECTIONS.winners,
+        let: { userId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$usedById', '$$userId'] },
+              deletedAt: null,
+              isUsed: true,
+              usedAt: { $ne: null },
+            },
+          },
+          {
+            $project: {
+              giftId: 1,
+            },
+          },
+        ],
+        as: 'usedWinners',
+      },
+    };
+
     const $addFields: PipelineStage.AddFields = {
       $addFields: {
+        // Barcha kodlar (oddiy + g'olib)
+        allUsedCodes: {
+          $concatArrays: ['$usedCodes', '$usedWinners'],
+        },
         giftsCount: {
           $size: {
             $filter: {
-              input: '$usedCodes',
+              input: {
+                $concatArrays: ['$usedCodes', '$usedWinners'],
+              },
               as: 'code',
               cond: { $ne: ['$$code.giftId', null] },
             },
@@ -79,7 +113,12 @@ export class DashboardClientService {
       },
     };
 
-    const pipeline: PipelineStage.FacetPipelineStage[] = [{ $match: baseMatch }, $lookupUsedCodes, $addFields];
+    const pipeline: PipelineStage.FacetPipelineStage[] = [
+      { $match: baseMatch },
+      $lookupUsedCodes,
+      $lookupUsedWinners,
+      $addFields,
+    ];
 
     const giftCountRange: Record<string, number> = {};
     if (typeof query.minGifts === 'number') {
