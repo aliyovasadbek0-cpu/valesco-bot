@@ -10,7 +10,6 @@ import { Types } from 'mongoose';
 import { SettingsModel } from '../../db/models/settings.model';
 import { BotLanguage } from '../core/middleware';
 import { GiftModel } from '../../db/models/gifts.model';
-import winnersData from '../../config/winners.json';
 import { phoneCheck } from '../helpers/util';
 
 type GiftTier = 'premium' | 'standard' | 'economy' | 'symbolic';
@@ -18,14 +17,6 @@ type GiftTier = 'premium' | 'standard' | 'economy' | 'symbolic';
 const norm = (s: string) => (s || '').trim().toUpperCase().replace(/-/g, '');
 const hyphenize = (s: string) =>
   s.includes('-') ? s : s.length > 6 ? s.slice(0, 6) + '-' + s.slice(6) : s;
-
-const tierMap = new Map<string, GiftTier>();
-if ((winnersData as any)?.tiers) {
-  for (const [tier, arr] of Object.entries(winnersData.tiers as Record<string, string[]>)) {
-    for (const code of arr || []) tierMap.set(norm(code), tier as GiftTier);
-  }
-}
-const getTier = (code: string): GiftTier | null => tierMap.get(norm(code)) ?? null;
 
 // ======================
 // 1) ISM RO‘YXATDAN O‘TKAZISH
@@ -159,42 +150,12 @@ async function checkCode(ctx: MyContext) {
   }).lean();
 
   // Agar winners da topilmasa, codes dan tekshirish
-  // LEKIN: Agar kod winners.json da bo'lsa, uni codes dan o'chirish kerak
   let code = null;
   if (!winner) {
     code = await CodeModel.findOne({
       $or: [{ value: rawText }, { value: hy }, { value: normalized }, { value: rawText.replace(/-/g, '') }],
       deletedAt: null,
     }).lean();
-    
-    // Agar kod codes da topilsa, lekin u winners.json da bo'lsa, uni winners ga ko'chirish kerak
-    if (code) {
-      // winners.json dan tekshiramiz
-      const winnersData = await import('../../config/winners.json');
-      const allWinnerCodes = new Set<string>();
-      
-      if ((winnersData as any).default?.tiers) {
-        for (const codes of Object.values((winnersData as any).default.tiers)) {
-          for (const c of codes as string[]) {
-            const n = c.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-            const pretty = n.length >= 10 ? n.slice(0, 6) + '-' + n.slice(6) : n;
-            allWinnerCodes.add(pretty);
-            allWinnerCodes.add(n);
-          }
-        }
-      }
-      
-      const codeNormalized = normalized;
-      const codePretty = hy;
-      
-      // Agar kod winners.json da bo'lsa, uni winners ga ko'chirish kerak
-      if (allWinnerCodes.has(codeNormalized) || allWinnerCodes.has(codePretty) || allWinnerCodes.has(rawText)) {
-        console.log("KOD WINNERS.JSON DA TOPILDI, WINNERS GA KO'CHIRILMOQDA:", rawText);
-        // Bu kodni winners ga ko'chirish kerak, lekin hozircha code ni null qilamiz
-        // chunki bu kod g'olib kod va uni winners dan tekshirish kerak
-        code = null;
-      }
-    }
   }
 
   await CodeLogModel.create({
@@ -221,16 +182,30 @@ async function checkCode(ctx: MyContext) {
     });
 
     // BIR MARTALIK TEKSHIRISH - agar kod ishlatilgan bo'lsa, hech kim uni ishlata olmaydi
+    // Agar foydalanuvchi o'zi ishlatgan bo'lsa ham, ikkinchi marta ishlata olmaydi
     if (winner.isUsed) {
-      console.log("WINNER KOD ISHLATILGAN - bir martalik!");
+      console.log("WINNER KOD ISHLATILGAN - bir martalik! Foydalanuvchi:", winner.usedById?.toString());
       return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeUsed);
     }
 
-    // Kod ishlatilmagan bo'lsa, ishlatilgan deb belgilaymiz
-    await WinnerModel.updateOne(
-      { _id: winner._id },
+    // Atomik operatsiya bilan kodni ishlatilgan deb belgilash (race condition oldini olish)
+    const updateResult = await WinnerModel.updateOne(
+      { 
+        _id: winner._id,
+        isUsed: false, // Faqat ishlatilmagan kodlarni yangilash
+      },
       { $set: { isUsed: true, usedAt: new Date().toISOString(), usedById: ctx.session.user.db_id } }
     );
+
+    // Agar updateResult.modifiedCount === 0 bo'lsa, demak kod boshqa foydalanuvchi tomonidan ishlatilgan
+    if (updateResult.modifiedCount === 0) {
+      console.log("WINNER KOD BOSHQA FOYDALANUVCHI TOMONIDAN ISHLATILGAN!");
+      // Yangi holatni tekshirish
+      const updatedWinner = await WinnerModel.findById(winner._id).lean();
+      if (updatedWinner?.isUsed) {
+        return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeUsed);
+      }
+    }
 
     // Winner kod uchun tier aniqlash
     const tier = winner.tier as GiftTier | null;
@@ -259,27 +234,49 @@ async function checkCode(ctx: MyContext) {
   }
 
   // Oddiy kod topilgan bo'lsa
-  if (code.isUsed && code.usedById?.toString() !== ctx.session.user.db_id.toString()) {
+  if (!code) {
+    // Hech qayerda topilmasa
+    return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeFake);
+  }
+
+  // BIR MARTALIK TEKSHIRISH - agar kod ishlatilgan bo'lsa, hech kim uni ishlata olmaydi
+  // Agar foydalanuvchi o'zi ishlatgan bo'lsa ham, ikkinchi marta ishlata olmaydi
+  if (code.isUsed) {
+    console.log("ODDIY KOD ISHLATILGAN - bir martalik! Foydalanuvchi:", code.usedById?.toString());
     return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeUsed);
   }
 
-  if (!code.isUsed) {
-    await CodeModel.updateOne(
-      { _id: code._id },
-      { $set: { isUsed: true, usedAt: new Date().toISOString(), usedById: ctx.session.user.db_id } }
-    );
+  // Atomik operatsiya bilan kodni ishlatilgan deb belgilash (race condition oldini olish)
+  const updateResult = await CodeModel.updateOne(
+    { 
+      _id: code._id,
+      isUsed: false, // Faqat ishlatilmagan kodlarni yangilash
+    },
+    { $set: { isUsed: true, usedAt: new Date().toISOString(), usedById: ctx.session.user.db_id } }
+  );
+
+  // Agar updateResult.modifiedCount === 0 bo'lsa, demak kod boshqa foydalanuvchi tomonidan ishlatilgan
+  if (updateResult.modifiedCount === 0) {
+    console.log("ODDIY KOD BOSHQA FOYDALANUVCHI TOMONIDAN ISHLATILGAN!");
+    // Yangi holatni tekshirish
+    const updatedCode = await CodeModel.findById(code._id).lean();
+    if (updatedCode?.isUsed) {
+      return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeUsed);
+    }
   }
 
-  const tier = getTier(rawText) || getTier(normalized) || getTier(hy);
-
-  if (tier) {
-    const gift = await GiftModel.findOne({ type: tier, deletedAt: null }).lean();
-    if (gift) {
+  // Oddiy kod - hech qanday sovg'a yo'q
+  // Agar kod CodeModel da bo'lsa va giftId bo'lsa, gift topamiz
+  if (code && code.giftId) {
+    const gift = await GiftModel.findOne({ _id: code.giftId, deletedAt: null }).lean();
+    if (gift && gift.type) {
+      const tier = gift.type as GiftTier;
       await GiftModel.updateOne({ _id: gift._id }, { $inc: { usedCount: 1 } });
       return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeWithGift[tier]);
     }
   }
 
+  // Oddiy kod - hech qanday sovg'a yo'q
   return ctx.api.forwardMessage(ctx.from.id, FORWARD_MESSAGES_CHANNEL_ID, messageIds[lang].codeReal);
 }
 

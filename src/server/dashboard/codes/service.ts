@@ -1,5 +1,6 @@
 import { PipelineStage, Types } from 'mongoose';
 import { CodeModel } from '../../../db/models/codes.model';
+import { WinnerModel } from '../../../db/models/winners.model';
 import { DashboardGiftCodesDto, DashboardGiftCodeStatus } from '../gift-codes/class-validator';
 import { DashboardCodesDto } from './class-validator';
 import { COLLECTIONS } from '../../../common/constant/tables';
@@ -11,25 +12,79 @@ interface AggregateOptions {
 }
 
 export class DashboardCodesService {
-  constructor(private readonly codeModel = CodeModel) {}
+  constructor(private readonly codeModel = CodeModel, private readonly winnerModel = WinnerModel) {}
 
   async getGiftCodes(query: DashboardGiftCodesDto) {
+    // Bu endpoint endi g'olib kodlar ro'yxatini qaytaradi (WinnerModel dan)
     query.limit = query.limit ?? 10;
     query.page = query.page ?? 1;
 
-    const baseFilter = this.buildBaseFilter();
-    const status = query.status ?? DashboardGiftCodeStatus.ASSIGNED;
+    return this.aggregateWinnerCodes({
+      query,
+    });
+  }
 
-    if (status === DashboardGiftCodeStatus.ASSIGNED) {
-      baseFilter['giftId'] = { $ne: null };
-    } else if (status === DashboardGiftCodeStatus.UNASSIGNED) {
-      baseFilter['giftId'] = null;
+  async getWinnerCodes(query: DashboardGiftCodesDto) {
+    // G'olib kodlar ro'yxati (faqat ishlatilganlar)
+    query.limit = query.limit ?? 10;
+    query.page = query.page ?? 1;
+
+    return this.aggregateWinnerCodes({
+      query,
+    });
+  }
+
+  private async aggregateWinnerCodes({ query }: { query: DashboardGiftCodesDto }) {
+    const baseFilter: PipelineStage.Match['$match'] = {
+      deletedAt: null,
+      isUsed: true,
+      usedAt: { $ne: null },
+    };
+
+    const pipeline: PipelineStage[] = [
+      { $match: baseFilter },
+      this.lookupUserStage('usedById'),
+      this.lookupGiftStage('giftId'),
+      this.flattenLookupStage(),
+      this.usedAtStage(),
+      this.derivedFieldsStage(),
+    ];
+
+    const searchStage = this.buildSearchStage(query.search);
+    if (searchStage) {
+      pipeline.push(searchStage);
     }
 
-    return this.aggregateCodes({
-      query,
-      baseFilter,
-    });
+    const $sort: PipelineStage.Sort = { $sort: { usedAtDate: -1, id: 1 } };
+    const $skip: PipelineStage.Skip = { $skip: (query.page - 1) * query.limit };
+    const $limit: PipelineStage.Limit = { $limit: query.limit };
+
+     // data pipeline
+const dataPipeline: PipelineStage[] = [...pipeline, $sort, $skip, $limit];
+
+// total count pipeline
+const totalPipeline: PipelineStage[] = [...pipeline, { $count: 'total' }];
+
+// aggregate
+const result = await this.codeModel.aggregate<{
+  data: any[];
+  total: [{ total: number }];
+}>([
+  {
+    $facet: {
+      data: dataPipeline as any,
+      total: totalPipeline as any,
+    },
+  },
+]);
+
+    const records = result[0]?.data ?? [];
+    const total = result[0]?.total?.[0]?.total ?? 0;
+
+    return {
+      data: records.map((record) => this.transformRecord(record)),
+      total,
+    };
   }
 
   async getCodes(query: DashboardCodesDto) {
@@ -106,8 +161,6 @@ const result = await this.codeModel.aggregate<{
     },
   },
 ]);
-
-
     const records = result[0]?.data ?? [];
     const total = result[0]?.total?.[0]?.total ?? 0;
 
@@ -117,11 +170,11 @@ const result = await this.codeModel.aggregate<{
     };
   }
 
-  private lookupUserStage(): PipelineStage.Lookup {
+  private lookupUserStage(usedByIdField = 'usedById'): PipelineStage.Lookup {
     return {
       $lookup: {
         from: COLLECTIONS.users,
-        let: { usedById: '$usedById' },
+        let: { usedById: `$${usedByIdField}` },
         pipeline: [
           {
             $match: {
@@ -144,11 +197,11 @@ const result = await this.codeModel.aggregate<{
     };
   }
 
-  private lookupGiftStage(): PipelineStage.Lookup {
+  private lookupGiftStage(giftIdField = 'giftId'): PipelineStage.Lookup {
     return {
       $lookup: {
         from: COLLECTIONS.gifts,
-        let: { giftId: '$giftId' },
+        let: { giftId: `$${giftIdField}` },
         pipeline: [
           {
             $match: {
@@ -283,6 +336,199 @@ const result = await this.codeModel.aggregate<{
       usedBy,
       usedAt: record.usedAtDate ? new Date(record.usedAtDate).toISOString() : null,
       usedAtFormatted: record.usedAtFormatted || null,
+    };
+  }
+
+  async searchAll(query: DashboardCodesDto) {
+    // Keng qamrovli qidiruv - kodlar, g'olib kodlar va foydalanuvchilar orasida
+    query.limit = query.limit ?? 10;
+    query.page = query.page ?? 1;
+
+    if (!query.search || !query.search.trim()) {
+      return { data: [], total: 0 };
+    }
+
+    const searchTerm = query.search.trim();
+    const regex = new RegExp(this.escapeRegex(searchTerm), 'i');
+    const searchNum = isNaN(Number(searchTerm)) ? null : Number(searchTerm);
+
+    // 1. Foydalanuvchilarni topish
+    const users = await this.codeModel.db
+      .collection(COLLECTIONS.users)
+      .find({
+        deletedAt: null,
+        $or: [
+          { firstName: { $regex: regex } },
+          { lastName: { $regex: regex } },
+          { phoneNumber: { $regex: regex } },
+          { tgFirstName: { $regex: regex } },
+          { tgLastName: { $regex: regex } },
+        ],
+      })
+      .limit(50)
+      .toArray();
+
+    const userIds = users.map((u) => u._id);
+
+    // 2. Kodlar orasida qidirish (value, id, yoki foydalanuvchi bo'yicha)
+    const codesPipeline: PipelineStage[] = [
+      {
+        $match: {
+          deletedAt: null,
+          $or: [
+            { value: { $regex: regex } },
+            ...(searchNum ? [{ id: searchNum }] : []),
+            ...(userIds.length ? [{ usedById: { $in: userIds } }] : []),
+          ],
+        },
+      },
+      ...(userIds.length
+        ? [
+            {
+              $lookup: {
+                from: COLLECTIONS.users,
+                let: { userId: '$usedById' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: { $eq: ['$_id', '$$userId'] },
+                      deletedAt: null,
+                      $or: [
+                        { firstName: { $regex: regex } },
+                        { lastName: { $regex: regex } },
+                        { phoneNumber: { $regex: regex } },
+                        { tgFirstName: { $regex: regex } },
+                        { tgLastName: { $regex: regex } },
+                      ],
+                    },
+                  },
+                ],
+                as: 'matchedUsers',
+              },
+            },
+            {
+              $match: {
+                $or: [
+                  { value: { $regex: regex } },
+                  ...(searchNum ? [{ id: searchNum }] : []),
+                  { 'matchedUsers.0': { $exists: true } },
+                ],
+              },
+            },
+          ]
+        : []),
+      this.lookupUserStage(),
+      this.lookupGiftStage(),
+      this.flattenLookupStage(),
+      this.usedAtStage(),
+      this.derivedFieldsStage(),
+      this.buildSearchStage(searchTerm) || { $match: {} },
+    ];
+
+    // 3. G'olib kodlar orasida qidirish (value, id, yoki foydalanuvchi bo'yicha)
+    const winnersPipeline: PipelineStage[] = [
+      {
+        $match: {
+          deletedAt: null,
+          $or: [
+            { value: { $regex: regex } },
+            ...(searchNum ? [{ id: searchNum }] : []),
+            ...(userIds.length ? [{ usedById: { $in: userIds } }] : []),
+          ],
+        },
+      },
+      ...(userIds.length
+        ? [
+            {
+              $lookup: {
+                from: COLLECTIONS.users,
+                let: { userId: '$usedById' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: { $eq: ['$_id', '$$userId'] },
+                      deletedAt: null,
+                      $or: [
+                        { firstName: { $regex: regex } },
+                        { lastName: { $regex: regex } },
+                        { phoneNumber: { $regex: regex } },
+                        { tgFirstName: { $regex: regex } },
+                        { tgLastName: { $regex: regex } },
+                      ],
+                    },
+                  },
+                ],
+                as: 'matchedUsers',
+              },
+            },
+            {
+              $match: {
+                $or: [
+                  { value: { $regex: regex } },
+                  ...(searchNum ? [{ id: searchNum }] : []),
+                  { 'matchedUsers.0': { $exists: true } },
+                ],
+              },
+            },
+          ]
+        : []),
+      this.lookupUserStage('usedById'),
+      this.lookupGiftStage('giftId'),
+      this.flattenLookupStage(),
+      this.usedAtStage(),
+      this.derivedFieldsStage(),
+      {
+        $match: {
+          $or: [
+            { value: { $regex: regex } },
+            ...(searchNum ? [{ idString: searchTerm }] : []),
+            { usedByFullName: { $regex: regex } },
+            { usedByPhone: { $regex: regex } },
+          ],
+        },
+      },
+    ];
+const [codesResult, winnersResult] = await Promise.all([
+  this.codeModel.aggregate([
+    {
+      $facet: {
+        data: codesPipeline as any,
+      },
+    },
+  ]).exec(),
+
+  this.winnerModel.aggregate([
+    {
+      $facet: {
+        data: winnersPipeline as any,
+      },
+    },
+  ]).exec(),
+]);
+
+
+    const codesData = codesResult[0]?.data || [];
+    const winnersData = winnersResult[0]?.data || [];
+
+    // Birlashtirish va sort qilish
+    const allResults = [
+      ...codesData.map((r: any) => ({ ...r, _source: 'code' })),
+      ...winnersData.map((r: any) => ({ ...r, _source: 'winner' })),
+    ].sort((a: any, b: any) => {
+      // usedAtDate bo'yicha sort (eng yangilari birinchi)
+      const aDate = a.usedAtDate ? new Date(a.usedAtDate).getTime() : 0;
+      const bDate = b.usedAtDate ? new Date(b.usedAtDate).getTime() : 0;
+      return bDate - aDate;
+    });
+
+    // Pagination
+    const total = allResults.length;
+    const startIndex = (query.page - 1) * query.limit;
+    const paginatedResults = allResults.slice(startIndex, startIndex + query.limit);
+
+    return {
+      data: paginatedResults.map((record: any) => this.transformRecord(record)),
+      total,
     };
   }
 

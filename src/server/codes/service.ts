@@ -8,23 +8,19 @@ import { CodeException } from './error';
 import { GiftModel } from '../../db/models/gifts.model';
 import { QuerySort } from '../../common/validation/types';
 import { isMongoId } from 'class-validator';
-import winnersData from '../../config/winners.json';
+import { WinnerModel } from '../../db/models/winners.model';
 
 type GiftTier = 'premium' | 'standard' | 'economy' | 'symbolic';
 
-// Winners.json dan kodlarni olish
+// Bazadan g'olib kodlarni olish (WinnerModel dan)
 const norm = (s: string) => (s || '').trim().toUpperCase().replace(/-/g, '');
-const winnersSet = new Set<string>();
-if ((winnersData as any)?.tiers) {
-  for (const [tier, arr] of Object.entries(winnersData.tiers as Record<string, string[]>)) {
-    for (const code of arr || []) {
-      winnersSet.add(norm(code));
-    }
-  }
-}
 
 export class CodeService extends BaseService<Code, CodeDto> {
-  constructor(model: typeof CodeModel = CodeModel, private readonly giftModel: typeof GiftModel = GiftModel) {
+  constructor(
+    model: typeof CodeModel = CodeModel,
+    private readonly giftModel: typeof GiftModel = GiftModel,
+    private readonly winnerModel: typeof WinnerModel = WinnerModel,
+  ) {
     super(model);
   }
 
@@ -291,16 +287,21 @@ export class CodeService extends BaseService<Code, CodeDto> {
     };
   }
 
-  // G'oliblar - winners.json dagi kodlar bilan ishlatilgan kodlar
+  // G'oliblar - WinnerModel dagi kodlar bilan ishlatilgan kodlar
   async getWinners(query: PagingDto): Promise<{ data: any[]; total: number }> {
-    const winnerCodes = Array.from(winnersSet);
+    // Bazadan barcha g'olib kodlarni olamiz
+    const allWinners = await WinnerModel.find({ deletedAt: null }).select('value').lean();
+    const winnerValues = allWinners.map(w => w.value);
+    
     const winnerValueFilters: any[] = [];
     
-    for (const code of winnerCodes) {
-      const withHyphen = code.length === 10 ? `${code.substring(0, 6)}-${code.substring(6)}` : code;
+    for (const code of winnerValues) {
+      const normalized = norm(code);
+      const withHyphen = normalized.length === 10 ? `${normalized.slice(0, 6)}-${normalized.slice(6)}` : normalized;
       winnerValueFilters.push(
         { value: code },
         { value: withHyphen },
+        { value: normalized },
         { value: code.replace(/-/g, '') },
       );
     }
@@ -308,7 +309,7 @@ export class CodeService extends BaseService<Code, CodeDto> {
     const filter: any = {
       deletedAt: null,
       isUsed: true,
-      $or: winnerValueFilters,
+      $or: winnerValueFilters.length > 0 ? winnerValueFilters : [{ value: null }], // Agar g'olib kodlar bo'lmasa
     };
 
     if (query.search) {
@@ -375,16 +376,21 @@ export class CodeService extends BaseService<Code, CodeDto> {
     };
   }
 
-  // Mag'lublar - winners.json da yo'q, lekin bazada bor va ishlatilgan kodlar
+  // Mag'lublar - WinnerModel da yo'q, lekin CodeModel da bor va ishlatilgan kodlar
   async getLosers(query: PagingDto): Promise<{ data: any[]; total: number }> {
-    const winnerCodes = Array.from(winnersSet);
+    // Bazadan barcha g'olib kodlarni olamiz
+    const allWinners = await WinnerModel.find({ deletedAt: null }).select('value').lean();
+    const winnerValues = allWinners.map(w => w.value);
+    
     const winnerValueFilters: any[] = [];
     
-    for (const code of winnerCodes) {
-      const withHyphen = code.length === 10 ? `${code.substring(0, 6)}-${code.substring(6)}` : code;
+    for (const code of winnerValues) {
+      const normalized = norm(code);
+      const withHyphen = normalized.length === 10 ? `${normalized.slice(0, 6)}-${normalized.slice(6)}` : normalized;
       winnerValueFilters.push(
         { value: code },
         { value: withHyphen },
+        { value: normalized },
         { value: code.replace(/-/g, '') },
       );
     }
@@ -392,7 +398,7 @@ export class CodeService extends BaseService<Code, CodeDto> {
     const filter: any = {
       deletedAt: null,
       isUsed: true,
-      $nor: [{ $or: winnerValueFilters }],
+      $nor: winnerValueFilters.length > 0 ? [{ $or: winnerValueFilters }] : [{ value: null }],
     };
 
     if (query.search) {
@@ -446,23 +452,28 @@ export class CodeService extends BaseService<Code, CodeDto> {
     };
   }
 
-  // Winner kodlar - winners.json dagi kodlar (bazada bor yoki yo'q)
+  // Winner kodlar - WinnerModel dagi kodlar (bazada bor)
   async getWinnerCodes(query: PagingDto): Promise<{ data: any[]; total: number }> {
-    const winnerCodes = Array.from(winnersSet);
+    // Bazadan barcha g'olib kodlarni olamiz
+    const allWinners = await WinnerModel.find({ deletedAt: null }).select('value').lean();
+    const winnerValues = allWinners.map(w => w.value);
+    
     const winnerValueFilters: any[] = [];
     
-    for (const code of winnerCodes) {
-      const withHyphen = code.length === 10 ? `${code.substring(0, 6)}-${code.substring(6)}` : code;
+    for (const code of winnerValues) {
+      const normalized = norm(code);
+      const withHyphen = normalized.length === 10 ? `${normalized.slice(0, 6)}-${normalized.slice(6)}` : normalized;
       winnerValueFilters.push(
         { value: code },
         { value: withHyphen },
+        { value: normalized },
         { value: code.replace(/-/g, '') },
       );
     }
 
     const filter: any = {
       deletedAt: null,
-      $or: winnerValueFilters,
+      $or: winnerValueFilters.length > 0 ? winnerValueFilters : [{ value: null }], // Agar g'olib kodlar bo'lmasa
     };
 
     if (query.search) {
@@ -529,23 +540,28 @@ export class CodeService extends BaseService<Code, CodeDto> {
     };
   }
 
-  // Yutuqsiz kodlar - bazada bor, lekin winners.json da yo'q kodlar
+  // Yutuqsiz kodlar - bazada bor, lekin WinnerModel da yo'q kodlar
   async getNonWinnerCodes(query: PagingDto): Promise<{ data: any[]; total: number }> {
-    const winnerCodes = Array.from(winnersSet);
+    // Bazadan barcha g'olib kodlarni olamiz
+    const allWinners = await WinnerModel.find({ deletedAt: null }).select('value').lean();
+    const winnerValues = allWinners.map(w => w.value);
+    
     const winnerValueFilters: any[] = [];
     
-    for (const code of winnerCodes) {
-      const withHyphen = code.length === 10 ? `${code.substring(0, 6)}-${code.substring(6)}` : code;
+    for (const code of winnerValues) {
+      const normalized = norm(code);
+      const withHyphen = normalized.length === 10 ? `${normalized.slice(0, 6)}-${normalized.slice(6)}` : normalized;
       winnerValueFilters.push(
         { value: code },
         { value: withHyphen },
+        { value: normalized },
         { value: code.replace(/-/g, '') },
       );
     }
 
     const filter: any = {
       deletedAt: null,
-      $nor: [{ $or: winnerValueFilters }],
+      $nor: winnerValueFilters.length > 0 ? [{ $or: winnerValueFilters }] : [{ value: null }],
     };
 
     if (query.search) {
