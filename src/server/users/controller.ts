@@ -26,7 +26,11 @@ class UserController {
   // 🧩 Foydalanuvchi yaratish (POST /users)
   async create(req: Request, res: Response) {
     const body = await validateIt(req.body, UserDto, [UserDtoGroup.CREATE]);
-    body.role = UserRole.ADMIN;
+    // Role request'dan keladi, agar yo'q bo'lsa default ADMIN
+    // SuperAdmin ADMIN yoki SUPER_ADMIN yaratishi mumkin
+    if (!body.role) {
+      body.role = UserRole.ADMIN;
+    }
 
     // 👉 Asl metod: createUser
     const user = await this.userService.createUser(body);

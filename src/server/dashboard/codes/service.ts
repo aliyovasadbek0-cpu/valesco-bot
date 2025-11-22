@@ -490,6 +490,7 @@ export class DashboardCodesService {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  
 private async aggregateGiftReceivers(query: DashboardGiftCodesDto) {
   const baseFilter: Record<string, any> = {
     deletedAt: null,
@@ -501,7 +502,6 @@ private async aggregateGiftReceivers(query: DashboardGiftCodesDto) {
   if ('giftId' in query && query.giftId) {
     baseFilter.giftId = new Types.ObjectId(String(query.giftId));
   }
-
     const pipeline: PipelineStage[] = [
       { $match: baseFilter },
       this.lookupUserStage(),
