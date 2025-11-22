@@ -21,12 +21,14 @@ class CodeController {
     this.getWinnerCodeById = this.getWinnerCodeById.bind(this);
     this.getNonWinnerCodes = this.getNonWinnerCodes.bind(this);
     this.getNonWinnerCodeById = this.getNonWinnerCodeById.bind(this);
+    this.getCodeMonth = this.getCodeMonth.bind(this);
+    this.getCodesByMonth = this.getCodesByMonth.bind(this);
   }
 
   public async getById(req: Request, res: Response) {
     const data = await validateIt(req.params, CodeDto, [CodeDtoGroup.GET_BY_ID]);
 
-    const result = await this.codesService.findById(data._id);
+    const result = await this.codesService.findById(data._id, { month: 0 });
     return res.success(result);
   }
 
@@ -86,7 +88,7 @@ class CodeController {
 
   public async getWinnerById(req: Request, res: Response) {
     const data = await validateIt(req.params, CodeDto, [CodeDtoGroup.GET_BY_ID]);
-    const result = await this.codesService.findById(data._id);
+    const result = await this.codesService.findById(data._id, { month: 0 });
     return res.success(result);
   }
 
@@ -105,7 +107,7 @@ class CodeController {
 
   public async getLoserById(req: Request, res: Response) {
     const data = await validateIt(req.params, CodeDto, [CodeDtoGroup.GET_BY_ID]);
-    const result = await this.codesService.findById(data._id);
+    const result = await this.codesService.findById(data._id, { month: 0 });
     return res.success(result);
   }
 
@@ -124,7 +126,7 @@ class CodeController {
 
   public async getWinnerCodeById(req: Request, res: Response) {
     const data = await validateIt(req.params, CodeDto, [CodeDtoGroup.GET_BY_ID]);
-    const result = await this.codesService.findById(data._id);
+    const result = await this.codesService.findById(data._id, { month: 0 });
     return res.success(result);
   }
 
@@ -143,8 +145,36 @@ class CodeController {
 
   public async getNonWinnerCodeById(req: Request, res: Response) {
     const data = await validateIt(req.params, CodeDto, [CodeDtoGroup.GET_BY_ID]);
-    const result = await this.codesService.findById(data._id);
+    const result = await this.codesService.findById(data._id, { month: 0 });
     return res.success(result);
+  }
+
+  // Kod kiritib GET qilganda qaysi oyga tegishli ekanligini qaytaradi
+  public async getCodeMonth(req: Request, res: Response) {
+    const data = await validateIt(req.query, CodeDto, [CodeDtoGroup.CHECK_CODE]);
+    const result = await this.codesService.getCodeMonth(data.value);
+    return res.success(result);
+  }
+
+  // Oy tanlansa shu oyga tegishli kodlar chiqadi
+  public async getCodesByMonth(req: Request, res: Response) {
+    const month = req.params.month;
+    if (!month) {
+      return res.status(400).json({
+  success: false,
+  message: 'Month parameter is required',
+});
+
+    }
+    const query = await validateIt(req.query, CodePagingDto, [CodeDtoGroup.PAGINATION]);
+    const codes = await this.codesService.getCodesByMonth(query, month);
+
+    return res.success(codes.data, {
+      currentPage: query.page,
+      totalData: codes.total,
+      totalPages: Math.ceil(codes.total / query.limit),
+      limit: query.limit,
+    });
   }
 }
 

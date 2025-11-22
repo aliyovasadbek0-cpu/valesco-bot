@@ -37,7 +37,7 @@ async function extractCodes(filePath: string): Promise<string[]> {
   return Array.from(codes);
 }
 
-async function bulkInsert(model: any, codes: string[], giftId?: Types.ObjectId, tier?: string) {
+async function bulkInsert(model: any, codes: string[], giftId?: Types.ObjectId, tier?: string, month?: string | null) {
   const existing = await model.find({ deletedAt: null }).select('value').lean();
   const set = new Set(existing.map((c: any) => normalize(c.value)));
 
@@ -57,6 +57,7 @@ async function bulkInsert(model: any, codes: string[], giftId?: Types.ObjectId, 
             id: maxId,
             value: clean.length >= 10 ? clean.slice(0, 6) + '-' + clean.slice(6) : clean,
             ...(tier ? { tier, giftId } : { isUsed: false, version: 2, giftId: null }),
+            ...(month ? { month } : { month: null }),
             deletedAt: null,
           }
         }
@@ -72,7 +73,7 @@ async function bulkInsert(model: any, codes: string[], giftId?: Types.ObjectId, 
   };
 }
 
-async function saveWinners(codes: string[], tier: 'premium' | 'standard' | 'economy' | 'symbolic') {
+async function saveWinners(codes: string[], tier: 'premium' | 'standard' | 'economy' | 'symbolic', month?: string | null) {
   let gift = await GiftModel.findOne({ type: tier, deletedAt: null }).lean();
   if (!gift) {
     const giftCount = await GiftModel.countDocuments();
@@ -97,11 +98,11 @@ async function saveWinners(codes: string[], tier: 'premium' | 'standard' | 'econ
     console.log(`Yangi gift yaratildi: ${tier}`);
   }
 
-  return bulkInsert(WinnerModel, codes, gift._id, tier);
+  return bulkInsert(WinnerModel, codes, gift._id, tier, month);
 }
 
-async function saveCodes(codes: string[]) {
-  return bulkInsert(CodeModel, codes);
+async function saveCodes(codes: string[], month?: string | null) {
+  return bulkInsert(CodeModel, codes, undefined, undefined, month);
 }
 
 // ASOSIY HANDLER
@@ -117,8 +118,10 @@ export const handleDocument = async (ctx: MyContext) => {
   if (!session.mode || !['upload_winners','upload_codes'].includes(session.mode)) session.mode = 'upload_codes';
   const isWinnerMode = session.mode === 'upload_winners';
   const winnerTier = session.winnerTier;
+  const selectedMonth = session.selectedMonth;
 
   if (isWinnerMode && !winnerTier) return ctx.reply('❌ Kategoriya tanlanmagan!');
+  if (!selectedMonth) return ctx.reply('❌ Oy tanlanmagan!');
 
   try {
     await ctx.reply(isWinnerMode ? `Fayl qabul qilindi, ${winnerTier} kategoriyasidagi g'olib kodlar yuklanmoqda...` : "Fayl qabul qilindi, kodlar yuklanmoqda...");
@@ -139,9 +142,9 @@ export const handleDocument = async (ctx: MyContext) => {
 
     let result;
     if (isWinnerMode) {
-      result = await saveWinners(codes, winnerTier!);
+      result = await saveWinners(codes, winnerTier!, selectedMonth);
     } else {
-      result = await saveCodes(codes);
+      result = await saveCodes(codes, selectedMonth);
     }
 
     const total = isWinnerMode
@@ -157,11 +160,13 @@ Jami bazada: <b>${total}</b>
 
     session.mode = null;
     session.winnerTier = null;
+    session.selectedMonth = null;
   } catch (err: any) {
     console.error("ADMIN EXCEL XATOSI:", err);
     await ctx.reply(`Xato: ${err.message}`);
     session.mode = null;
     session.winnerTier = null;
+    session.selectedMonth = null;
   }
 };
 

@@ -19,6 +19,10 @@ const codesRouter = Router()
   // Yutuqsiz kodlar (bazada bor, lekin winners.json da yo'q)
   .get('/non-winner-codes/all', runAsyncWrapper(codesController.getNonWinnerCodes))
   .get('/non-winner-codes/:id', runAsyncWrapper(codesController.getNonWinnerCodeById))
+  // Yangi API: Kod kiritib GET qilganda qaysi oyga tegishli ekanligini qaytaradi
+  .get('/code-month', runAsyncWrapper(codesController.getCodeMonth))
+  // Yangi API: Oy tanlansa shu oyga tegishli kodlar chiqadi
+  .get('/by-month/:month', runAsyncWrapper(codesController.getCodesByMonth))
   // Oxirgi route - barcha boshqa routelardan keyin
   .get('/:id', runAsyncWrapper(codesController.getById));
 

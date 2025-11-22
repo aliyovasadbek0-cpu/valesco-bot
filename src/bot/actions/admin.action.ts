@@ -11,13 +11,46 @@ const adminSessions = new Map<number, {
   mode: 'upload_codes' | 'upload_winners' | 'upload_images' | null;
   imageType: 'premium' | 'standard' | 'economy' | 'symbolic' | null;
   winnerTier: 'premium' | 'standard' | 'economy' | 'symbolic' | null;
+  selectedMonth: string | null;
 }>();
 
 function getAdminSession(userId: number) {
   if (!adminSessions.has(userId)) {
-    adminSessions.set(userId, { mode: null, imageType: null, winnerTier: null });
+    adminSessions.set(userId, { mode: null, imageType: null, winnerTier: null, selectedMonth: null });
   }
   return adminSessions.get(userId)!;
+}
+
+// Oylar ro'yxati
+const months = [
+  { value: 'yanvar', label: 'Yanvar' },
+  { value: 'fevral', label: 'Fevral' },
+  { value: 'mart', label: 'Mart' },
+  { value: 'aprel', label: 'Aprel' },
+  { value: 'may', label: 'May' },
+  { value: 'iyun', label: 'Iyun' },
+  { value: 'iyul', label: 'Iyul' },
+  { value: 'avgust', label: 'Avgust' },
+  { value: 'sentabr', label: 'Sentabr' },
+  { value: 'oktabr', label: 'Oktabr' },
+  { value: 'noyabr', label: 'Noyabr' },
+  { value: 'dekabr', label: 'Dekabr' },
+];
+
+function getMonthKeyboard(prefix: string) {
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < months.length; i += 2) {
+    if (i + 1 < months.length) {
+      keyboard
+        .text(months[i].label, `${prefix}_${months[i].value}`)
+        .text(months[i + 1].label, `${prefix}_${months[i + 1].value}`)
+        .row();
+    } else {
+      keyboard.text(months[i].label, `${prefix}_${months[i].value}`).row();
+    }
+  }
+  keyboard.text('⬅️ Orqaga', CallbackActions.ADMIN_UPLOAD_CODES);
+  return keyboard;
 }
 
 // Admin menu keyboard
@@ -42,22 +75,66 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_CODES, async (ctx) => {
 
   const session = getAdminSession(ctx.from.id);
   session.mode = 'upload_codes';
+  session.selectedMonth = null;
 
-  await ctx.answerCallbackQuery('✅ Kodlar kiritish rejimi faollashtirildi');
+  await ctx.answerCallbackQuery('✅ Kodlar kiritish rejimi');
+  
+  const monthKeyboard = getMonthKeyboard('admin_upload_codes_month');
   
   try {
     await ctx.editMessageText(
-      '📥 <b>Kodlar kiritish</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, kodlar avtomatik ravishda bazaga saqlanadi.',
+      '📥 <b>Kodlar kiritish</b>\n\nAvval qaysi oy uchun kodlar kiritmoqchisiz?',
       { 
         parse_mode: 'HTML',
-        reply_markup: getAdminKeyboard(),
+        reply_markup: monthKeyboard,
       },
     );
   } catch (error: any) {
     // Agar xabar o'zgartirib bo'lmasa, yangi xabar yuboramiz
     if (error.error_code === 400 && error.description?.includes('not modified')) {
       await ctx.reply(
-        '📥 <b>Kodlar kiritish</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, kodlar avtomatik ravishda bazaga saqlanadi.',
+        '📥 <b>Kodlar kiritish</b>\n\nAvval qaysi oy uchun kodlar kiritmoqchisiz?',
+        { 
+          parse_mode: 'HTML',
+          reply_markup: monthKeyboard,
+        },
+      );
+    } else {
+      throw error;
+    }
+  }
+});
+
+// Oy tanlash handler (kodlar uchun)
+bot.callbackQuery(new RegExp(`^admin_upload_codes_month_(.+)$`), async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) {
+    return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
+  }
+
+  const match = ctx.callbackQuery.data.match(/^admin_upload_codes_month_(.+)$/);
+  if (!match) return;
+
+  const month = match[1];
+  const session = getAdminSession(ctx.from.id);
+  session.mode = 'upload_codes';
+  session.selectedMonth = month;
+
+  const monthLabel = months.find(m => m.value === month)?.label || month;
+
+  await ctx.answerCallbackQuery(`✅ ${monthLabel} tanlandi`);
+  
+  try {
+    await ctx.editMessageText(
+      `📥 <b>Kodlar kiritish - ${monthLabel}</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, kodlar avtomatik ravishda bazaga saqlanadi.`,
+      { 
+        parse_mode: 'HTML',
+        reply_markup: getAdminKeyboard(),
+      },
+    );
+  } catch (error: any) {
+    if (error.error_code === 400 && error.description?.includes('not modified')) {
+      await ctx.reply(
+        `📥 <b>Kodlar kiritish - ${monthLabel}</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, kodlar avtomatik ravishda bazaga saqlanadi.`,
         { 
           parse_mode: 'HTML',
           reply_markup: getAdminKeyboard(),
@@ -77,6 +154,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
 
   const session = getAdminSession(ctx.from.id);
   session.mode = 'upload_winners';
+  session.selectedMonth = null;
 
   const tierKeyboard = new InlineKeyboard()
     .text('💎 Premium', `${CallbackActions.ADMIN_UPLOAD_WINNERS}_premium`)
@@ -124,6 +202,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
     const session = getAdminSession(ctx.from.id);
     session.mode = 'upload_winners';
     session.winnerTier = tier as any;
+    session.selectedMonth = null;
 
     const tierNames: Record<string, string> = {
       premium: '💎 Premium',
@@ -134,9 +213,60 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
 
     await ctx.answerCallbackQuery(`✅ ${tierNames[tier]} kategoriyasi tanlandi`);
     
+    const monthKeyboard = getMonthKeyboard(`admin_upload_winners_${tier}_month`);
+    
     try {
       await ctx.editMessageText(
-        `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, ${tierNames[tier]} kategoriyasidagi g'olib kodlar avtomatik ravishda bazaga saqlanadi.`,
+        `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish</b>\n\nAvval qaysi oy uchun kodlar kiritmoqchisiz?`,
+        { 
+          parse_mode: 'HTML',
+          reply_markup: monthKeyboard,
+        },
+      );
+    } catch (error: any) {
+      if (error.error_code === 400 && error.description?.includes('not modified')) {
+        await ctx.reply(
+          `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish</b>\n\nAvval qaysi oy uchun kodlar kiritmoqchisiz?`,
+          { 
+            parse_mode: 'HTML',
+            reply_markup: monthKeyboard,
+          },
+        );
+      } else {
+        throw error;
+      }
+    }
+  });
+
+  // Har bir kategoriya uchun oy tanlash handler
+  bot.callbackQuery(new RegExp(`^admin_upload_winners_${tier}_month_(.+)$`), async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) {
+      return ctx.answerCallbackQuery('❌ Siz admin emassiz.');
+    }
+
+    const match = ctx.callbackQuery.data.match(new RegExp(`^admin_upload_winners_${tier}_month_(.+)$`));
+    if (!match) return;
+
+    const month = match[1];
+    const session = getAdminSession(ctx.from.id);
+    session.mode = 'upload_winners';
+    session.winnerTier = tier as any;
+    session.selectedMonth = month;
+
+    const tierNames: Record<string, string> = {
+      premium: '💎 Premium',
+      standard: '⭐ Standard',
+      economy: '💰 Economy',
+      symbolic: '🎁 Symbolic',
+    };
+
+    const monthLabel = months.find(m => m.value === month)?.label || month;
+
+    await ctx.answerCallbackQuery(`✅ ${monthLabel} tanlandi`);
+    
+    try {
+      await ctx.editMessageText(
+        `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish - ${monthLabel}</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, ${tierNames[tier]} kategoriyasidagi g'olib kodlar avtomatik ravishda bazaga saqlanadi.`,
         { 
           parse_mode: 'HTML',
           reply_markup: getAdminKeyboard(),
@@ -145,7 +275,7 @@ bot.callbackQuery(CallbackActions.ADMIN_UPLOAD_WINNERS, async (ctx) => {
     } catch (error: any) {
       if (error.error_code === 400 && error.description?.includes('not modified')) {
         await ctx.reply(
-          `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, ${tierNames[tier]} kategoriyasidagi g'olib kodlar avtomatik ravishda bazaga saqlanadi.`,
+          `${tierNames[tier]} <b>kategoriyasi uchun g'olib kodlarni kiritish - ${monthLabel}</b>\n\nExcel/CSV/TXT fayl yuboring.\nFayl yuborilgach, ${tierNames[tier]} kategoriyasidagi g'olib kodlar avtomatik ravishda bazaga saqlanadi.`,
           { 
             parse_mode: 'HTML',
             reply_markup: getAdminKeyboard(),

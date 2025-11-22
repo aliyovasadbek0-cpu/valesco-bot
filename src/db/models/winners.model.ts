@@ -48,6 +48,9 @@ export class Winner {
   @prop({ type: String, default: null })
   deletedAt: string = null;
 
+  @prop({ type: String, default: null })
+  month!: string | null;
+
   updatedAt: string;
   createdAt: string;
 }

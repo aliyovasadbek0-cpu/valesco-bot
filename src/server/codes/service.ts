@@ -31,7 +31,7 @@ export class CodeService extends BaseService<Code, CodeDto> {
         giftGivenBy: giftGivenBy,
         giftGivenAt: new Date().toISOString(),
       },
-      { lean: true, new: true },
+      { lean: true, new: true, projection: { month: 0 } },
     );
   }
 
@@ -613,6 +613,151 @@ export class CodeService extends BaseService<Code, CodeDto> {
     return {
       data: res[0].data,
       total: res[0].total[0]?.total || 0,
+    };
+  }
+
+  // Kod kiritib GET qilganda qaysi oyga tegishli ekanligini qaytaradi
+  async getCodeMonth(value: string): Promise<{ value: string; month: string | null }> {
+    const normalized = norm(value);
+    const withHyphen = normalized.length === 10 ? `${normalized.slice(0, 6)}-${normalized.slice(6)}` : normalized;
+    
+    const code = await this.model.findOne({
+      deletedAt: null,
+      $or: [
+        { value: value },
+        { value: withHyphen },
+        { value: normalized },
+        { value: value.replace(/-/g, '') },
+      ],
+    }, { value: 1, month: 1 }).lean();
+
+    if (!code) {
+      throw CodeException.NotFound();
+    }
+
+    return {
+      value: code.value,
+      month: code.month || null,
+    };
+  }
+
+  // Oy tanlansa shu oyga tegishli kodlar chiqadi
+  async getCodesByMonth(query: PagingDto, month: string): Promise<{ data: any[]; total: number }> {
+    const filter: any = {
+      deletedAt: null,
+      month: month,
+    };
+
+    if (query.search) {
+      filter['$or'] = [{ value: { $regex: query.search, $options: 'i' } }, { id: Number(query.search) }];
+    }
+
+    query.limit = query.limit ?? 10;
+    query.page = query.page ?? 1;
+
+    const $match = { $match: filter };
+    const $project = {
+      $project: {
+        _id: 1,
+        id: 1,
+        value: 1,
+        giftId: 1,
+        isUsed: 1,
+        usedAt: 1,
+        usedById: 1,
+        month: 1,
+      },
+    };
+    const $sort: PipelineStage.Sort = { $sort: { usedAt: -1, id: 1 } };
+    const $limit = { $limit: query.limit };
+    const $skip = { $skip: (query.page - 1) * query.limit };
+    const $lookupUser: PipelineStage.Lookup = {
+      $lookup: {
+        from: COLLECTIONS.users,
+        let: { usedById: '$usedById' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ['$_id', '$$usedById'],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              tgId: 1,
+              tgFirstName: 1,
+              tgLastName: 1,
+              firstName: 1,
+              phoneNumber: 1,
+            },
+          },
+        ],
+        as: 'usedBy',
+      },
+    };
+    const $lookupGift: PipelineStage.Lookup = {
+      $lookup: {
+        from: COLLECTIONS.gifts,
+        let: { giftId: '$giftId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ['$_id', '$$giftId'],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              id: 1,
+              name: 1,
+              image: 1,
+              images: 1,
+              totalCount: 1,
+              usedCount: 1,
+            },
+          },
+        ],
+        as: 'gift',
+      },
+    };
+
+    const $lastProject: PipelineStage.Project = {
+      $project: {
+        usedBy: { $arrayElemAt: ['$usedBy', 0] },
+        gift: { $arrayElemAt: ['$gift', 0] },
+        ...$project.$project,
+      },
+    };
+    const pipeline: PipelineStage.FacetPipelineStage[] = [
+      $match,
+      $project,
+      $sort,
+      $skip,
+      $limit,
+      $lookupUser,
+      $lookupGift,
+      $lastProject,
+    ];
+
+    const res = await this.model.aggregate<{
+      data: any[];
+      total: [{ total: number }];
+    }>([
+      {
+        $facet: {
+          data: pipeline,
+          total: [$match, { $count: 'total' }],
+        },
+      },
+    ]);
+
+    return {
+      data: res[0].data,
+      total: res[0].total[0] && res[0].total[0].total ? res[0].total[0].total : 0,
     };
   }
 }
