@@ -41,7 +41,6 @@
 // export default bot;
 
 
-
 import { Bot } from 'grammy';
 import { BOT_TOKEN } from '../config';
 import { MyContext } from '../types/types';
@@ -53,8 +52,7 @@ if (!BOT_TOKEN) {
 }
 
 const ADMIN_IDS = [
-  5661241603,
-  7546792114
+  5661241603
 ];
 
 const bot = new Bot<MyContext>(BOT_TOKEN);

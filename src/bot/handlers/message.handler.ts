@@ -2,7 +2,7 @@ import { CodeModel } from '../../db/models/codes.model';
 import { WinnerModel } from '../../db/models/winners.model';
 import { MyContext } from '../types/types';
 import bot from '../core/bot';
-import { UserModel, UserRole } from '../../db/models/users.model';
+import { UserModel } from '../../db/models/users.model';
 import { contactRequestKeyboard } from '../helpers/keyboard';
 import { isAdmin, FORWARD_MESSAGES_CHANNEL_ID, messageIds } from '../config';
 import { CodeLogModel } from '../../db/models/code-logs.model';
@@ -42,7 +42,6 @@ async function registerUserName(ctx: MyContext) {
       lang: ctx.session.user.lang || 'uz',
       phoneNumber: '',
       lastUseAt: new Date(),
-      role: UserRole.USER,
     }).save();
     ctx.session.user.db_id = newUser._id;
   }
@@ -91,7 +90,6 @@ async function registerUserPhoneNumber(ctx: MyContext) {
       lang: ctx.session.user.lang || 'uz',
       phoneNumber: phone,
       lastUseAt: new Date(),
-      role: UserRole.USER,
     }).save();
     ctx.session.user.db_id = newUser._id;
   }

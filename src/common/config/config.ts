@@ -7,7 +7,7 @@ export const ENV = {
   ENVIRONMENT: process.env.NODE_ENV || 'development',
   DB: {
     MONGODB: {
-      URL: process.env.MONGODB_URL || 'postgres',
+      URL: process.env.MONGODB_URL || 'mongodb://localhost:27017/valesco-bot',
       DATABASE_NAME: process.env.MONGODB_DATABASE_NAME,
     },
   },

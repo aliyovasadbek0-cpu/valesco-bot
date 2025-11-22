@@ -44,7 +44,7 @@ export class UserService extends UserAuthService<UserDto> {
       gender: data.gender ?? 'NOT_SET',
       lang: data.lang ?? 'uz',
       status: data.status ?? 'active',
-      role: data.role || UserRole.ADMIN,
+      role: UserRole.ADMIN,
       birthday: data.birthday ?? null,
       email: data.email ?? '',
       address: data.address ?? '',
